@@ -1,0 +1,465 @@
+'use strict';
+// QG d'Aurélien, étape 1 : notes, tâches et dossiers.
+// Tout ce qui est modifié est gardé dans l'appareil tout de suite, puis envoyé au Google Sheet dès que ça capte.
+// Le Sheet renvoie tout : c'est comme ça que le téléphone et le PC restent pareils.
+
+const URL_SCRIPT_EN_LIGNE = 'https://script.google.com/macros/s/AKfycbzVtXadj1IIZda8jBdQt4UlrqpFwWFppuB4TWmAGOj89XU1_zofTkBwOMnq7tU1ccYScQ/exec'; // adresse /exec du script Google (voir README)
+const LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+const URL_SCRIPT = LOCAL ? location.origin + '/exec' : URL_SCRIPT_EN_LIGNE;
+const COLLS = ['dossiers', 'notes'];
+
+// ---------- stockage de l'appareil
+const LS = {
+  get(k, d) { try { const v = JSON.parse(localStorage.getItem('qg-' + k)); return v == null ? d : v; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('qg-' + k, JSON.stringify(v)); return true; } catch (e) { return false; } }
+};
+// Le lien donné par le script finit par #k=CLÉ : on la garde, puis on l'efface de la barre d'adresse.
+function lireCle(texte) { const m = String(texte || '').match(/[#&?]k=([A-Za-z0-9]{16,})/); return m ? m[1] : null; }
+(function () { const k = lireCle(location.hash); if (k) { LS.set('cle', k); history.replaceState(null, '', location.pathname + location.search); } })();
+let CLE = LS.get('cle', null);
+
+const DB = Object.assign({ dossiers: {}, notes: {} }, LS.get('db', {}));
+const PEND = Object.assign({ dossiers: {}, notes: {} }, LS.get('pend', {})); // éléments pas encore reçus par le Sheet : id -> heure de modif
+const INFO = Object.assign({ t: 0 }, LS.get('sync', {}));
+COLLS.forEach(c => Object.values(DB[c]).forEach(d => { if (d._neuf) delete DB[c][d.id]; })); // note ouverte puis appli fermée sans rien écrire
+const SET = { theme: LS.get('theme', 'light') };
+let stockageOK = true;
+function persister() { stockageOK = LS.set('db', DB) && LS.set('pend', PEND); }
+
+// ---------- petits outils
+const $ = s => document.querySelector(s);
+const pad = n => String(n).padStart(2, '0');
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+const idNouveau = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const JOURS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+const MOISC = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+const memeJour = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+function quand(ms) { const d = new Date(ms); return memeJour(d, new Date()) ? `${pad(d.getHours())}h${pad(d.getMinutes())}` : `${d.getDate()} ${MOISC[d.getMonth()]}`; }
+function isoWeek(d) { const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7)); const y = new Date(Date.UTC(t.getUTCFullYear(), 0, 1)); return Math.ceil(((t - y) / 864e5 + 1) / 7); }
+let toastT;
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2800); }
+
+// Le texte des notes ne garde que la mise en forme simple (gras, italique, listes) : rien d'autre n'entre.
+const BALISES = new Set(['P', 'BR', 'B', 'STRONG', 'I', 'EM', 'U', 'DIV', 'UL', 'OL', 'LI', 'SPAN']);
+function propre(html) {
+  const doc = new DOMParser().parseFromString('<div>' + (html || '') + '</div>', 'text/html');
+  const racine = doc.body.firstChild;
+  (function nettoyer(el) {
+    [...el.childNodes].forEach(n => {
+      if (n.nodeType === 3) return;
+      if (n.nodeType !== 1) { n.remove(); return; }
+      if (!BALISES.has(n.tagName)) {
+        if (['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'SVG', 'IMG', 'VIDEO', 'AUDIO', 'TEMPLATE'].includes(n.tagName)) { n.remove(); return; }
+        nettoyer(n); n.replaceWith(...n.childNodes); return;
+      }
+      [...n.attributes].forEach(a => n.removeAttribute(a.name));
+      nettoyer(n);
+    });
+  })(racine);
+  return racine.innerHTML;
+}
+const texteDe = html => { const d = document.createElement('div'); d.innerHTML = propre(html); return d.textContent.trim(); };
+
+// ---------- données
+const vivants = c => Object.values(DB[c]).filter(d => !d.suppr && !d._neuf);
+const dossiers = () => vivants('dossiers').sort((a, b) => (a.c || 0) - (b.c || 0) || String(a.n).localeCompare(String(b.n)));
+const dossier = id => DB.dossiers[id] && !DB.dossiers[id].suppr ? DB.dossiers[id] : null;
+const notes = () => Object.values(DB.notes).filter(n => !n.suppr && !n._neuf).sort((a, b) => b.maj - a.maj);
+const fMode = id => (dossier(id) || {}).m;
+const dossierNom = id => { const f = dossier(id); if (!f) return 'Sans dossier'; const p = f.p && dossier(f.p); return p ? `${p.n} › ${f.n}` : f.n; };
+const notesEspace = () => notes().filter(n => (fMode(n.f) || 'perso') === S.mode);
+
+function enregistrer(c, doc) {
+  delete doc._neuf;
+  doc.maj = Date.now();
+  DB[c][doc.id] = doc;
+  PEND[c][doc.id] = doc.maj;
+  persister();
+  if (!stockageOK) toast('Mémoire du téléphone pleine : la modification n\'est pas gardée hors ligne');
+  planifier();
+  renderSync();
+}
+
+// ---------- envoi et réception
+const ST = { enCours: false, horsLigne: false, erreur: null, lien: false };
+const nbAttente = () => COLLS.reduce((a, c) => a + Object.keys(PEND[c]).length, 0);
+let planT;
+function planifier(ms) { clearTimeout(planT); planT = setTimeout(synchroniser, ms == null ? 1500 : ms); }
+async function appel(corps) {
+  const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 25000);
+  try {
+    const r = await fetch(URL_SCRIPT, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(corps), signal: ctl.signal });
+    return JSON.parse(await r.text()); // une page d'erreur Google n'est pas du JSON : on retentera
+  } finally { clearTimeout(to); }
+}
+async function synchroniser() {
+  if (ST.enCours || !CLE || URL_SCRIPT === 'A_REMPLIR') { renderSync(); return; }
+  ST.enCours = true; renderSync();
+  const envoi = {}, envoyes = {};
+  COLLS.forEach(c => {
+    envoi[c] = Object.keys(PEND[c]).map(id => DB[c][id]).filter(Boolean);
+    envoi[c].forEach(d => { envoyes[c + ':' + d.id] = d.maj; });
+  });
+  let encore = false;
+  try {
+    const r = await appel({ a: 'sync', k: CLE, docs: envoi });
+    if (r && r.ok) {
+      const finis = (r.recus || []).concat((r.refus || []).map(x => x.id));
+      finis.forEach(cle => {
+        const [c, id] = [cle.slice(0, cle.indexOf(':')), cle.slice(cle.indexOf(':') + 1)];
+        if (PEND[c] && PEND[c][id] === envoyes[cle]) delete PEND[c][id]; // modifié pendant l'envoi : on le renverra
+      });
+      (r.refus || []).forEach(x => toast('Pas enregistré : ' + x.raison));
+      COLLS.forEach(c => {
+        const neuf = {};
+        (r[c] || []).forEach(d => { neuf[d.id] = d; });
+        Object.keys(PEND[c]).forEach(id => { if (DB[c][id]) neuf[id] = DB[c][id]; });
+        Object.values(DB[c]).forEach(d => { if (d._neuf) neuf[d.id] = d; }); // note ouverte pas encore écrite
+        DB[c] = neuf;
+      });
+      persister();
+      INFO.t = Date.now(); LS.set('sync', INFO);
+      Object.assign(ST, { horsLigne: false, erreur: null, lien: false });
+      encore = nbAttente() > 0;
+      rafraichir();
+    } else if (r && r.code === 'lien') { ST.lien = true; ST.erreur = r.erreur; }
+    else { ST.erreur = (r && r.erreur) || 'réponse inattendue du Sheet'; }
+  } catch (e) { ST.horsLigne = true; }
+  ST.enCours = false;
+  renderSync();
+  if (encore) planifier(300);
+}
+function renderSync() {
+  const b = $('#sync'), n = nbAttente();
+  let cls = '', txt;
+  if (!CLE) { cls = 'err'; txt = 'Pas branché'; }
+  else if (URL_SCRIPT === 'A_REMPLIR') { cls = 'err'; txt = 'Adresse du Sheet à régler'; }
+  else if (ST.lien) { cls = 'err'; txt = 'Lien refusé'; }
+  else if (ST.horsLigne) { cls = 'off'; txt = 'Hors ligne' + (n ? ` · ${n} en attente` : ''); }
+  else if (ST.erreur) { cls = 'err'; txt = 'Sheet indisponible' + (n ? ` · ${n} en attente` : ''); }
+  else if (ST.enCours) { cls = 'busy'; txt = 'Envoi…'; }
+  else if (n) { cls = 'busy'; txt = `${n} à envoyer`; }
+  else txt = INFO.t ? 'À jour' : 'Jamais synchronisé';
+  b.className = 'sync ' + cls; $('#sync-t').textContent = txt;
+  b.title = ST.erreur ? ST.erreur : (INFO.t ? `Dernière synchro : ${quand(INFO.t)}. Touche pour synchroniser.` : 'Touche pour synchroniser');
+}
+
+// ---------- état de l'écran
+const S = { mode: LS.get('mode', 'perso') === 'raf' ? 'raf' : 'perso', view: 'accueil', nt: 'taches', folder: 'all', q: '', open: null, delArm: false, fDel: null };
+const PIN = '<svg viewBox="0 0 24 24" fill="currentColor" aria-label="Épinglée"><path d="M16 3H8v2l1 1v5l-3 3v2h5v6l1 1 1-1v-6h5v-2l-3-3V6l1-1z"/></svg>';
+const FLAG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 21V4h11l-1.5 4L16 12H7v9z"/></svg>';
+const FOLDER_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg>';
+const COLORS = [['default', 'Sans couleur'], ['grey', 'Gris bleu'], ['blue', 'Bleu'], ['pink', 'Rose'], ['yellow', 'Jaune'], ['green', 'Vert'], ['lilac', 'Lilas']];
+
+function cardHTML(n, showFolder) {
+  let body = '';
+  if (n.type === 'list') {
+    const items = n.items || [];
+    const open = items.map((it, i) => ({ it, i })).filter(o => !o.it.ok).sort((a, b) => (b.it.urg ? 1 : 0) - (a.it.urg ? 1 : 0));
+    const done = items.length - open.length;
+    body = `<ul class="cl">${open.slice(0, 7).map(o => `<li><label class="ck"><input type="checkbox" data-card="${n.id}" data-idx="${o.i}"><span class="${o.it.urg ? 'u' : ''}">${esc(o.it.t)}</span>${o.it.urg ? `<span class="flag-i" title="Urgente">${FLAG}</span>` : ''}</label></li>`).join('')}</ul>`
+      + (open.length > 7 ? `<p class="more">+ ${open.length - 7} autres</p>` : '')
+      + (done ? `<p class="more">${done} terminée${done > 1 ? 's' : ''}</p>` : '')
+      + (!items.length ? '<p class="more">Liste vide</p>' : '');
+  } else body = `<div class="preview">${propre(n.html) || '<p class="more">Note vide</p>'}</div>`;
+  return `<article class="card" tabindex="0" role="button" data-open="${n.id}" style="--nc:var(--n-${COLORS.some(c => c[0] === n.color) ? n.color : 'default'})"><header><h3>${esc(n.title || 'Sans titre')}</h3>${n.pin ? PIN : ''}</header>${body}${showFolder ? `<footer>${esc(dossierNom(n.f))}</footer>` : ''}</article>`;
+}
+function urgentBlock() {
+  const items = [];
+  notesEspace().filter(n => n.type === 'list').forEach(n => (n.items || []).forEach((it, i) => { if (it.urg && !it.ok) items.push({ n, it, i }); }));
+  return `<div class="block a-urgent"><div class="bh"><h2>Tâches urgentes</h2>${items.length ? `<span class="cnt">${items.length}</span>` : ''}</div><div class="panel">${items.length ? `<ul class="urg">${items.map(o => `<li><label class="ck"><input type="checkbox" data-card="${o.n.id}" data-idx="${o.i}" aria-label="Fait : ${esc(o.it.t)}"><span>${esc(o.it.t)}</span></label><button type="button" class="link" data-open="${o.n.id}">${esc(o.n.title || 'Sans titre')}</button></li>`).join('')}</ul>` : '<p class="empty">Rien d\'urgent. Dans une liste de tâches, touche le drapeau d\'une tâche pour la faire remonter ici.</p>'}</div></div>`;
+}
+function pinsBlock(title) {
+  const pinned = notesEspace().filter(n => n.pin);
+  return `<div class="block a-pins"><h2>${title}</h2>${pinned.length ? `<div class="grid">${pinned.map(n => cardHTML(n, false)).join('')}</div>` : '<div class="empty-state"><strong>Aucune note épinglée</strong>Ouvre une note et touche l\'épingle pour la retrouver ici.</div>'}</div>`;
+}
+function renderAccueil() {
+  let last = '';
+  if (S.mode === 'raf') {
+    const f = dossiers().filter(x => x.p && x.m === 'raf').slice(-1)[0];
+    if (f) {
+      const ns = notes().filter(n => n.f === f.id);
+      last = `<div class="block a-last"><div class="bh"><h2>Dernier dossier de match · ${esc(f.n)}</h2><a class="link" href="#notes" data-gofolder="${f.id}">Dossier ›</a></div><div class="panel"><div class="mini-notes">${ns.map(n => `<button type="button" data-open="${n.id}">${esc(n.title || 'Sans titre')}<small>${quand(n.maj)}</small></button>`).join('') || '<p class="empty">Dossier vide.</p>'}</div></div></div>`;
+    }
+  }
+  $('#v-accueil').innerHTML = `<div class="home">${urgentBlock()}${last}${pinsBlock(S.mode === 'raf' ? 'Notes épinglées RAF' : 'Notes épinglées')}
+    <p class="soon a-soon">Prochaines étapes : ${S.mode === 'raf' ? 'agenda RAF et prochain match' : 'où je suis, cours, repas et agenda perso'} arriveront ici.</p></div>`;
+}
+
+function renderNotes() {
+  const type = S.nt === 'taches' ? 'list' : 'text';
+  const mine = notesEspace(), mineT = mine.filter(n => n.type === type);
+  const fs = dossiers();
+  const cnt = id => { const ids = [id, ...fs.filter(f => f.p === id).map(f => f.id)]; return mineT.filter(n => ids.includes(n.f)).length; };
+  const tops = fs.filter(f => !f.p && f.m === S.mode);
+  if (S.folder !== 'all' && fMode(S.folder) !== S.mode) S.folder = 'all';
+  let fl = `<button type="button" data-folder="all" aria-pressed="${S.folder === 'all'}">Tous les dossiers <span class="c">${mineT.length}</span></button>`;
+  tops.forEach(f => {
+    fl += `<button type="button" data-folder="${f.id}" aria-pressed="${S.folder === f.id}">${esc(f.n)} <span class="c">${cnt(f.id)}</span></button>`;
+    fs.filter(c => c.p === f.id).forEach(c => { fl += `<button type="button" class="child" data-folder="${c.id}" aria-pressed="${S.folder === c.id}">${esc(c.n)} <span class="c">${cnt(c.id)}</span></button>`; });
+  });
+  fl += '<button type="button" class="manage" data-goset="set-dossiers">Gérer les dossiers</button>';
+  const q = S.q.trim().toLowerCase();
+  let list, head = '', subs = '';
+  if (q) {
+    list = mineT.filter(n => (n.title + ' ' + (n.items || []).map(i => i.t).join(' ') + ' ' + texteDe(n.html)).toLowerCase().includes(q));
+    head = `<div class="crumb"><h2>Recherche « ${esc(S.q)} » · ${list.length} résultat${list.length > 1 ? 's' : ''}</h2></div>`;
+  } else if (S.folder === 'all') {
+    list = mineT; head = `<div class="crumb"><h2>${S.nt === 'taches' ? 'Toutes les listes de tâches' : 'Toutes les notes'}</h2></div>`;
+  } else {
+    const f = dossier(S.folder); list = mineT.filter(n => n.f === S.folder);
+    const parent = f.p && dossier(f.p);
+    head = `<div class="crumb">${parent ? `<button type="button" data-folder="${parent.id}">${esc(parent.n)}</button><h2>›</h2>` : ''}<h2>${esc(f.n)}</h2></div>`;
+    const kids = fs.filter(c => c.p === f.id);
+    if (kids.length) subs = `<div class="subs">${kids.map(c => `<button type="button" data-folder="${c.id}">${FOLDER_IC}${esc(c.n)} <small>${cnt(c.id)}</small></button>`).join('')}</div>`;
+  }
+  const pin = list.filter(n => n.pin), rest = list.filter(n => !n.pin), showF = S.folder === 'all' || !!q;
+  let grid;
+  if (!list.length) grid = `<div class="empty-state"><strong>${q ? 'Rien trouvé' : 'Rien ici pour l\'instant'}</strong>${q ? 'Essaie un autre mot.' : `Touche « + ${S.nt === 'taches' ? 'Liste de tâches' : 'Note'} » pour en créer une${S.folder !== 'all' ? ' dans ce dossier' : ''}.`}</div>`;
+  else if (pin.length && rest.length) grid = `<h2>Épinglées à l'accueil</h2><div class="grid">${pin.map(n => cardHTML(n, showF)).join('')}</div><h2>Autres</h2><div class="grid">${rest.map(n => cardHTML(n, showF)).join('')}</div>`;
+  else grid = `<div class="grid">${list.map(n => cardHTML(n, showF)).join('')}</div>`;
+  const nT = mine.filter(n => n.type === 'list').length, nN = mine.filter(n => n.type === 'text').length;
+  $('#v-notes').innerHTML = `<div class="notes">
+    <div class="folders" role="group" aria-label="Dossiers">${fl}</div>
+    <div class="notes-main">
+      <div class="nbar"><div class="seg" role="group" aria-label="Type"><button type="button" data-nt="taches" aria-pressed="${S.nt === 'taches'}">Tâches <small>${nT}</small></button><button type="button" data-nt="notes" aria-pressed="${S.nt === 'notes'}">Notes <small>${nN}</small></button></div>
+        <button class="btn primary" type="button" data-new="${type}">+ ${S.nt === 'taches' ? 'Liste de tâches' : 'Note'}</button></div>
+      <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="Chercher dans les ${S.nt === 'taches' ? 'tâches' : 'notes'} ${S.mode === 'raf' ? 'RAF' : 'perso'}" value="${esc(S.q)}" autocomplete="off"></label>
+      ${head}${subs}${grid}
+    </div></div>`;
+}
+
+function renderParams() {
+  const theme = `<section class="set-sec" id="set-theme"><h3>Apparence</h3>
+    <div class="seg" role="group" aria-label="Thème">${[['light', 'Clair'], ['dark', 'Sombre'], ['auto', 'Automatique']].map(([k, l]) => `<button type="button" data-theme-set="${k}" aria-pressed="${SET.theme === k}">${l}</button>`).join('')}</div>
+    <p class="cmeta">Automatique suit le réglage de ton téléphone ou de ton PC. Ce choix est gardé sur cet appareil.</p></section>`;
+  const fs = dossiers();
+  const fRows = m => fs.filter(f => !f.p && f.m === m).map(f => [f, ...fs.filter(c => c.p === f.id)]).flat().map(f => {
+    const nb = notes().filter(n => n.f === f.id).length;
+    const parents = fs.filter(x => !x.p && x.m === m && x.id !== f.id);
+    const hasKids = fs.some(c => c.p === f.id);
+    return `<div class="set-row${f.p ? ' child' : ''}"><input class="in" value="${esc(f.n)}" data-f-name="${f.id}" aria-label="Nom du dossier">
+      <select data-f-parent="${f.id}" aria-label="Ranger dans" ${hasKids ? 'disabled title="Ce dossier contient des sous-dossiers"' : ''}><option value="">Dossier principal</option>${parents.map(p => `<option value="${p.id}" ${f.p === p.id ? 'selected' : ''}>dans ${esc(p.n)}</option>`).join('')}</select>
+      <span class="cmeta">${nb} élément${nb > 1 ? 's' : ''}</span>
+      <button type="button" class="btn small${S.fDel === f.id ? ' danger' : ''}" data-f-del="${f.id}">${S.fDel === f.id ? (nb ? 'Confirmer (contenu déplacé)' : 'Confirmer') : 'Supprimer'}</button></div>`;
+  }).join('') || '<p class="cmeta">Aucun dossier.</p>';
+  const dossiersSec = `<section class="set-sec" id="set-dossiers"><h3>Dossiers des notes et tâches</h3>
+    <p class="cmeta">Renomme, range un dossier dans un autre ou supprime-le. Ce qu'il contient part dans le dossier au-dessus.</p>
+    <h4>Perso</h4><div class="set-rows">${fRows('perso')}</div>
+    <h4>RAF</h4><div class="set-rows">${fRows('raf')}</div>
+    <form class="set-row" id="f-add"><input class="in" id="fa-n" placeholder="Nouveau dossier" autocomplete="off" aria-label="Nom du nouveau dossier">
+      <select id="fa-p" aria-label="Où le créer">${['perso', 'raf'].map(m => `<option value="${m}|">${m === 'raf' ? 'RAF' : 'Perso'} · dossier principal</option>${fs.filter(f => !f.p && f.m === m).map(f => `<option value="${m}|${f.id}">${m === 'raf' ? 'RAF' : 'Perso'} · dans ${esc(f.n)}</option>`).join('')}`).join('')}</select>
+      <button class="btn primary small" type="submit">Créer</button></form></section>`;
+  const n = nbAttente();
+  const syncSec = `<section class="set-sec" id="set-sync"><h3>Synchronisation</h3>
+    <p class="cmeta">${INFO.t ? `Dernière synchro réussie : ${quand(INFO.t)}.` : 'Pas encore synchronisé.'} ${n ? `${n} modification${n > 1 ? 's' : ''} en attente d'envoi.` : 'Rien en attente.'}</p>
+    <p class="cmeta">Tes notes sont gardées dans ce téléphone ou ce PC et dans ton Google Sheet « QG d'Aurélien ». Sans réseau, tu peux tout lire, cocher et écrire : l'envoi se fait au retour du réseau.</p>
+    <div class="set-row"><button type="button" class="btn primary small" data-sync-now>Synchroniser maintenant</button></div></section>`;
+  $('#v-parametres').innerHTML = `<div class="set">${theme}${dossiersSec}${syncSec}</div>`;
+}
+
+function renderSetup() {
+  $('#v-setup').innerHTML = `<form class="setup panel pad" id="setup-form">
+    <p>Pour brancher l'appli sur ton Google Sheet, ouvre une fois le lien donné par le script (il finit par <b>#k=</b> suivi d'une longue suite de lettres et de chiffres), ou colle-le ici.</p>
+    <input class="in" id="setup-in" placeholder="Colle le lien ici" autocomplete="off">
+    <div><button class="btn primary" type="submit">Brancher</button></div></form>`;
+}
+
+const VIEWS = ['accueil', 'notes', 'parametres'];
+function render() {
+  document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === S.mode));
+  const setup = !CLE;
+  $('#v-setup').hidden = !setup;
+  VIEWS.forEach(v => { $('#v-' + v).hidden = setup || S.view !== v; });
+  document.querySelectorAll('[data-view]').forEach(a => { if (a.dataset.view === S.view) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+  const sp = S.mode === 'raf' ? 'Espace RAF' : 'Espace perso';
+  const now = new Date();
+  $('#foot').textContent = INFO.t ? `Dernière synchro : ${quand(INFO.t)}` : '';
+  if (setup) { $('#h1').textContent = 'Bienvenue'; $('#sub').textContent = 'Une seule fois par appareil'; renderSetup(); return; }
+  if (S.view === 'accueil') { $('#h1').textContent = cap(`${JOURS[now.getDay()]} ${now.getDate()} ${MOIS[now.getMonth()]}`); $('#sub').textContent = `${sp} · semaine ${isoWeek(now)}`; renderAccueil(); }
+  if (S.view === 'notes') {
+    $('#h1').textContent = 'Notes et tâches'; $('#sub').textContent = sp;
+    const had = document.activeElement && document.activeElement.id === 'q', pos = had ? document.activeElement.selectionStart : 0;
+    renderNotes();
+    if (had) { const i = $('#q'); i.focus(); i.setSelectionRange(pos, pos); }
+  }
+  if (S.view === 'parametres') {
+    $('#h1').textContent = 'Paramètres'; $('#sub').textContent = 'Thème, dossiers et synchronisation';
+    if (!(document.activeElement && document.activeElement.closest && document.activeElement.closest('#v-parametres'))) renderParams();
+  }
+}
+// Après une synchro : on redessine sans déranger ce qui est en cours de saisie.
+function rafraichir() {
+  const a = document.activeElement;
+  if (a && a.closest && (a.closest('#v-parametres') || a.id === 'q')) { renderSync(); return; }
+  render();
+  if (S.open && !note()) { S.open = null; $('#ov-editor').hidden = true; }
+}
+
+// ---------- éditeur de note ou de liste
+const note = () => (S.open ? DB.notes[S.open] : null);
+const touch = n => enregistrer('notes', n);
+function openEditor(id) { if (!DB.notes[id]) return; S.open = id; S.delArm = false; renderEditor(); $('#ov-editor').hidden = false; }
+function renderEditor(keepFocus) {
+  const n = note(); if (!n) return;
+  $('#editor').style.setProperty('--nc', `var(--n-${COLORS.some(c => c[0] === n.color) ? n.color : 'default'})`);
+  $('#ed-title').value = n.title || ''; $('#ed-title').placeholder = n.type === 'list' ? 'Nom de la liste' : 'Titre';
+  $('#ed-pin').setAttribute('aria-pressed', !!n.pin);
+  $('#ed-bold').hidden = n.type !== 'text';
+  $('#ed-colors').innerHTML = COLORS.map(([k, l]) => `<button type="button" data-color="${k}" style="--sc:var(--n-${k})" aria-label="${l}" title="${l}" aria-pressed="${n.color === k}"></button>`).join('');
+  const fs = dossiers();
+  $('#ed-folder').innerHTML = fs.map(f => `<option value="${f.id}" ${f.id === n.f ? 'selected' : ''}>${f.m === 'raf' ? 'RAF' : 'Perso'} · ${esc(dossierNom(f.id))}</option>`).join('') + (dossier(n.f) ? '' : '<option value="" selected>Sans dossier</option>');
+  const del = $('#ed-del'); del.textContent = S.delArm ? 'Confirmer la suppression' : 'Supprimer'; del.classList.toggle('danger', S.delArm);
+  $('#ed-meta').textContent = n._neuf ? 'Nouvelle' : `Modification : ${quand(n.maj)}`;
+  const body = $('#ed-body');
+  if (n.type === 'list') {
+    const rows = (n.items || []).map((it, i) => ({ it, i })), open = rows.filter(o => !o.it.ok), done = rows.filter(o => o.it.ok);
+    const row = o => `<li class="${o.it.ok ? 'ok' : ''}${o.it.urg && !o.it.ok ? ' urgent' : ''}"><input type="checkbox" ${o.it.ok ? 'checked' : ''} data-ed-idx="${o.i}" aria-label="Fait : ${esc(o.it.t)}"><input class="it" value="${esc(o.it.t)}" data-ed-text="${o.i}" aria-label="Tâche">${o.it.ok ? '' : `<button type="button" class="fl" data-ed-urg="${o.i}" aria-pressed="${!!o.it.urg}" aria-label="Urgente" title="${o.it.urg ? 'Retirer l\'urgence' : 'Marquer urgente (visible à l\'accueil)'}">${FLAG}</button>`}<button type="button" class="x" data-ed-del="${o.i}" aria-label="Retirer la tâche">×</button></li>`;
+    const wasOpen = body.querySelector('details') && body.querySelector('details').open;
+    body.innerHTML = `<p class="ed-hint">Le drapeau rend une tâche urgente : elle remonte sur l'accueil.</p><ul class="ed-list">${open.map(row).join('')}</ul>
+      <form class="add-item" id="add-item"><span>+</span><input id="new-item" placeholder="Nouvelle tâche" autocomplete="off" aria-label="Nouvelle tâche" enterkeyhint="enter"></form>
+      ${done.length ? `<details class="done"${wasOpen ? ' open' : ''}><summary>${done.length} terminée${done.length > 1 ? 's' : ''}</summary><ul class="ed-list">${done.map(row).join('')}</ul></details>` : ''}`;
+    if (keepFocus === true) $('#new-item').focus();
+  } else if (!body.querySelector('#rt') || keepFocus !== 'text') {
+    body.innerHTML = `<div class="rt" id="rt" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Texte de la note">${propre(n.html) || '<p><br></p>'}</div>`;
+  }
+}
+function closeEditor() {
+  const n = note();
+  if (n) {
+    const vide = !String(n.title || '').trim() && (n.type === 'list' ? !(n.items || []).length : !texteDe(n.html));
+    if (n._neuf) delete DB.notes[n.id];
+    else if (vide) { n.suppr = true; enregistrer('notes', n); }
+  }
+  S.open = null; $('#ov-editor').hidden = true; render();
+}
+function newNote(type) {
+  const fs = dossiers();
+  const f = S.view === 'notes' && S.folder !== 'all' ? S.folder : ((fs.find(x => !x.p && x.m === S.mode) || {}).id || '');
+  const n = { id: idNouveau('n'), title: '', f, type, color: 'default', pin: false, maj: Date.now(), items: [], html: '', _neuf: true };
+  DB.notes[n.id] = n; // gardée seulement à la première saisie
+  $('#ov-add').hidden = true; S.nt = type === 'list' ? 'taches' : 'notes';
+  openEditor(n.id); setTimeout(() => $('#ed-title').focus(), 30);
+}
+function goSection(id) {
+  S.view = 'parametres';
+  if (location.hash !== '#parametres') history.pushState(null, '', '#parametres');
+  render(); window.scrollTo(0, 0);
+  setTimeout(() => { const el = document.getElementById(id); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 30);
+}
+
+// ---------- clics
+document.addEventListener('click', e => {
+  const t = e.target;
+  const md = t.closest('[data-mode]');
+  if (md) { S.mode = md.dataset.mode; LS.set('mode', S.mode); S.q = ''; if (S.view === 'parametres') { S.view = 'accueil'; history.pushState(null, '', '#accueil'); } render(); window.scrollTo(0, 0); return; }
+  const nw = t.closest('[data-new]');
+  if (nw) { if (!CLE) return; const k = nw.dataset.new; if (k === 'menu') $('#ov-add').hidden = false; else newNote(k); return; }
+  if (t === $('#ov-add')) { $('#ov-add').hidden = true; return; }
+  if (t.closest('label.ck')) return;
+  const op = t.closest('[data-open]'); if (op) { openEditor(op.dataset.open); return; }
+  const gs = t.closest('[data-goset]'); if (gs) { goSection(gs.dataset.goset); return; }
+  const gf = t.closest('[data-gofolder]'); if (gf) { S.folder = gf.dataset.gofolder; S.nt = 'notes'; return; }
+  const nt = t.closest('[data-nt]'); if (nt) { S.nt = nt.dataset.nt; S.q = ''; renderNotes(); return; }
+  const fo = t.closest('[data-folder]'); if (fo) { S.folder = fo.dataset.folder; S.q = ''; renderNotes(); return; }
+  const th = t.closest('[data-theme-set]');
+  if (th) { SET.theme = th.dataset.themeSet; LS.set('theme', SET.theme); const r = document.documentElement; if (SET.theme === 'auto') r.removeAttribute('data-theme'); else r.setAttribute('data-theme', SET.theme); renderParams(); return; }
+  const fd = t.closest('[data-f-del]');
+  if (fd) {
+    const id = fd.dataset.fDel; if (S.fDel !== id) { S.fDel = id; renderParams(); return; }
+    const f = dossier(id); if (!f) return;
+    const cible = f.p || (dossiers().find(x => !x.p && x.m === f.m && x.id !== id) || {}).id;
+    const contenu = notes().filter(n => n.f === id);
+    if (contenu.length && !cible) { S.fDel = null; renderParams(); toast('Impossible : c\'est le dernier dossier de cet espace et il n\'est pas vide'); return; }
+    contenu.forEach(n => { n.f = cible; enregistrer('notes', n); });
+    dossiers().filter(c => c.p === id).forEach(c => { delete c.p; enregistrer('dossiers', c); });
+    f.suppr = true; enregistrer('dossiers', f);
+    if (S.folder === id) S.folder = 'all';
+    S.fDel = null; renderParams(); toast(`Dossier « ${f.n} » supprimé${contenu.length ? `, contenu déplacé dans ${dossierNom(cible)}` : ''}`); return;
+  }
+  if (t.closest('[data-sync-now]') || t.closest('#sync')) {
+    if (!CLE) { toast('Ouvre d\'abord le lien donné par le script'); return; }
+    if (URL_SCRIPT === 'A_REMPLIR') { toast('L\'adresse du Sheet n\'est pas encore réglée dans l\'appli'); return; }
+    ST.horsLigne = false; synchroniser().then(() => { toast(ST.horsLigne ? 'Pas de réseau : réessaie plus tard' : ST.erreur ? ST.erreur : 'À jour'); if (S.view === 'parametres') renderParams(); }); return;
+  }
+  const n = note();
+  if (n && t.closest('#ov-editor')) {
+    const col = t.closest('[data-color]'); if (col) { n.color = col.dataset.color; touch(n); renderEditor('text'); return; }
+    if (t.closest('#ed-pin')) { n.pin = !n.pin; touch(n); renderEditor('text'); toast(n.pin ? 'Épinglée : visible sur l\'accueil' : 'Retirée de l\'accueil'); return; }
+    const ur = t.closest('[data-ed-urg]'); if (ur) { const it = n.items[+ur.dataset.edUrg]; it.urg = !it.urg; touch(n); renderEditor(); toast(it.urg ? 'Tâche urgente : elle apparaît sur l\'accueil' : 'Urgence retirée'); return; }
+    const dl = t.closest('[data-ed-del]'); if (dl) { n.items.splice(+dl.dataset.edDel, 1); touch(n); renderEditor(); return; }
+    if (t.closest('#ed-dup')) {
+      if (n._neuf) return;
+      const c = JSON.parse(JSON.stringify(n)); c.id = idNouveau('n'); c.title = (n.title || 'Sans titre') + ' (copie)'; c.pin = false;
+      if (c.items) c.items.forEach(i => { i.ok = false; i.urg = false; });
+      enregistrer('notes', c);
+      openEditor(c.id); toast(n.type === 'list' ? 'Copie créée, cases décochées' : 'Copie créée : renomme-la (ex. Déroulé REIMS)'); setTimeout(() => $('#ed-title').select(), 30); return;
+    }
+    if (t.closest('#ed-del')) {
+      if (!S.delArm) { S.delArm = true; renderEditor('text'); return; }
+      if (n._neuf) delete DB.notes[n.id]; else { n.suppr = true; enregistrer('notes', n); }
+      S.open = null; $('#ov-editor').hidden = true; render(); toast('Supprimée'); return;
+    }
+    if (t.closest('#ed-close') || t === $('#ov-editor')) { closeEditor(); return; }
+    if (t.closest('#ed-bold')) { document.execCommand('bold'); const r = $('#rt'); if (r) { n.html = propre(r.innerHTML); touch(n); } return; }
+  }
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { if (!$('#ov-editor').hidden) closeEditor(); else $('#ov-add').hidden = true; }
+  if (e.key === 'Enter' && e.target.matches('[data-open]')) openEditor(e.target.dataset.open);
+});
+document.addEventListener('change', e => {
+  const t = e.target;
+  if (t.matches('[data-card]')) {
+    const n = DB.notes[t.dataset.card], it = n && n.items[+t.dataset.idx]; if (!it) return;
+    it.ok = t.checked; enregistrer('notes', n);
+    setTimeout(() => { render(); toast(`Fait : ${it.t}`); }, 180); return;
+  }
+  if (t.matches('[data-ed-idx]')) { const n = note(); n.items[+t.dataset.edIdx].ok = t.checked; touch(n); renderEditor(); return; }
+  if (t.id === 'ed-folder') { const n = note(); n.f = t.value; touch(n); toast(`Rangée dans ${dossierNom(t.value)}`); return; }
+  if (t.matches('[data-f-parent]')) { const f = dossier(t.dataset.fParent); if (t.value) f.p = t.value; else delete f.p; enregistrer('dossiers', f); renderParams(); return; }
+  if (t.matches('[data-f-name]')) { renderParams(); return; }
+});
+document.addEventListener('input', e => {
+  const t = e.target, n = note();
+  if (t.id === 'q') { S.q = t.value; renderNotes(); const i = $('#q'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); return; }
+  if (t.matches('[data-f-name]')) { const f = dossier(t.dataset.fName); if (f && t.value.trim()) { f.n = t.value.trim(); enregistrer('dossiers', f); } return; }
+  if (!n) return;
+  if (t.id === 'ed-title') { n.title = t.value; touch(n); return; }
+  if (t.matches('[data-ed-text]')) { n.items[+t.dataset.edText].t = t.value; touch(n); return; }
+  if (t.id === 'rt') { n.html = propre(t.innerHTML); touch(n); }
+});
+// Coller du texte dans une note : seulement le texte, sans la mise en forme du site d'origine.
+document.addEventListener('paste', e => {
+  if (e.target.closest && e.target.closest('#rt')) { e.preventDefault(); document.execCommand('insertText', false, (e.clipboardData || window.clipboardData).getData('text/plain')); }
+});
+document.addEventListener('submit', e => {
+  e.preventDefault();
+  const id = e.target.id;
+  if (id === 'add-item') {
+    const i = $('#new-item'), v = i.value.trim(); if (!v) return; const n = note();
+    const fd = n.items.findIndex(x => x.ok); n.items.splice(fd < 0 ? n.items.length : fd, 0, { t: v }); touch(n); renderEditor(true); return;
+  }
+  if (id === 'f-add') {
+    const nm = $('#fa-n').value.trim(); if (!nm) return;
+    const [m, p] = $('#fa-p').value.split('|');
+    const f = { id: idNouveau('f'), n: nm, m, c: Date.now() }; if (p) f.p = p;
+    enregistrer('dossiers', f); renderParams(); toast(`Dossier « ${nm} » créé`); return;
+  }
+  if (id === 'setup-form') {
+    const k = lireCle($('#setup-in').value);
+    if (!k) { toast('Je ne trouve pas la clé dans ce lien (#k=…)'); return; }
+    LS.set('cle', k); CLE = k; render(); synchroniser(); toast('Appli branchée'); return;
+  }
+});
+
+// ---------- navigation et réveils
+function route() { const h = location.hash.slice(1); S.view = VIEWS.includes(h) ? h : 'accueil'; render(); window.scrollTo(0, 0); }
+window.addEventListener('hashchange', route);
+window.addEventListener('online', () => { ST.horsLigne = false; synchroniser(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') synchroniser(); });
+setInterval(() => { if (document.visibilityState === 'visible') synchroniser(); }, 60000);
+if ('serviceWorker' in navigator && !LOCAL) navigator.serviceWorker.register('sw.js').catch(() => { });
+renderSync(); route(); synchroniser();

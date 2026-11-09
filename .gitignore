@@ -1,0 +1,12 @@
+# Liste blanche : seuls les fichiers de l'appli sont publiés.
+# Jamais apps-script/ (notes de départ), tests/, README, prive/.
+*
+!.gitignore
+!index.html
+!app.js
+!sw.js
+!manifest.webmanifest
+!icone.svg
+!icone-180.png
+!icone-192.png
+!icone-512.png

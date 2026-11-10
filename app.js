@@ -1,12 +1,12 @@
 'use strict';
-// QG d'Aurélien, étape 1 : notes, tâches et dossiers.
+// QG d'Aurélien, étape 2 : notes, tâches, dossiers + Google Agenda (semaine, cours, prochain match).
 // Tout ce qui est modifié est gardé dans l'appareil tout de suite, puis envoyé au Google Sheet dès que ça capte.
 // Le Sheet renvoie tout : c'est comme ça que le téléphone et le PC restent pareils.
 
 const URL_SCRIPT_EN_LIGNE = 'https://script.google.com/macros/s/AKfycbzVtXadj1IIZda8jBdQt4UlrqpFwWFppuB4TWmAGOj89XU1_zofTkBwOMnq7tU1ccYScQ/exec'; // adresse /exec du script Google (voir README)
 const LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 const URL_SCRIPT = LOCAL ? location.origin + '/exec' : URL_SCRIPT_EN_LIGNE;
-const COLLS = ['dossiers', 'notes'];
+const COLLS = ['dossiers', 'notes', 'reglages'];
 
 // ---------- stockage de l'appareil
 const LS = {
@@ -18,8 +18,8 @@ function lireCle(texte) { const m = String(texte || '').match(/[#&?]k=([A-Za-z0-
 (function () { const k = lireCle(location.hash); if (k) { LS.set('cle', k); history.replaceState(null, '', location.pathname + location.search); } })();
 let CLE = LS.get('cle', null);
 
-const DB = Object.assign({ dossiers: {}, notes: {} }, LS.get('db', {}));
-const PEND = Object.assign({ dossiers: {}, notes: {} }, LS.get('pend', {})); // éléments pas encore reçus par le Sheet : id -> heure de modif
+const DB = Object.assign({ dossiers: {}, notes: {}, reglages: {} }, LS.get('db', {}));
+const PEND = Object.assign({ dossiers: {}, notes: {}, reglages: {} }, LS.get('pend', {})); // éléments pas encore reçus par le Sheet : id -> heure de modif
 const INFO = Object.assign({ t: 0 }, LS.get('sync', {}));
 COLLS.forEach(c => Object.values(DB[c]).forEach(d => { if (d._neuf) delete DB[c][d.id]; })); // note ouverte puis appli fermée sans rien écrire
 const SET = { theme: LS.get('theme', 'light') };
@@ -38,6 +38,16 @@ const MOISC = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août
 const memeJour = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 function quand(ms) { const d = new Date(ms); return memeJour(d, new Date()) ? `${pad(d.getHours())}h${pad(d.getMinutes())}` : `${d.getDate()} ${MOISC[d.getMonth()]}`; }
 function isoWeek(d) { const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7)); const y = new Date(Date.UTC(t.getUTCFullYear(), 0, 1)); return Math.ceil(((t - y) / 864e5 + 1) / 7); }
+// Jours au format 2026-11-10 (heure de l'appareil)
+const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const jourDe = s => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, m - 1, d); };
+const addDays = (s, n) => { const d = jourDe(s); d.setDate(d.getDate() + n); return iso(d); };
+const lundiDe = s => { const d = jourDe(s); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return iso(d); };
+const auj = () => iso(new Date());
+const ecart = (a, b) => Math.round((jourDe(b) - jourDe(a)) / 864e5);
+const fmtCourt = s => { const d = jourDe(s); return `${JOURS[d.getDay()].slice(0, 3)}. ${d.getDate()} ${MOISC[d.getMonth()]}`; };
+const hh = t => String(t || '').replace(':', 'h');
+const plageTxt = (a, b) => { const x = jourDe(a), y = jourDe(b); return x.getMonth() === y.getMonth() ? `${x.getDate()} – ${y.getDate()} ${MOISC[y.getMonth()]}` : `${x.getDate()} ${MOISC[x.getMonth()]} – ${y.getDate()} ${MOISC[y.getMonth()]}`; };
 let toastT;
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2800); }
 
@@ -146,8 +156,214 @@ function renderSync() {
   b.title = ST.erreur ? ST.erreur : (INFO.t ? `Dernière synchro : ${quand(INFO.t)}. Touche pour synchroniser.` : 'Touche pour synchroniser');
 }
 
+// ---------- Google Agenda
+// Copie gardée dans l'appareil, par semaine (clé = lundi) : on lit l'agenda même sans réseau.
+// Ajouter, modifier ou supprimer un événement demande le réseau (Google Agenda reste la référence).
+const AG = Object.assign({ cals: [], sem: {} }, LS.get('ag', {}));
+const AGS = { enCours: false, erreur: null, horsLigne: false, essai: 0 };
+const ESPACES = { perso: 'Perso', raf: 'RAF', cours: 'Cours (accueil perso)', masque: 'Masqué' };
+const VIEUX = 5 * 60e3; // au-delà, on redemande à Google
+function espaceDefaut(c) {
+  if (c.prim || c.n === '👀') return 'perso';
+  if (/^raf$/i.test(String(c.n).trim())) return 'raf';
+  if (/@import\.calendar\.google\.com$/.test(c.id)) return 'cours';
+  return 'masque';
+}
+const regAgendas = () => { const r = DB.reglages.agendas; return (r && !r.suppr && r.v) || {}; };
+const espaceDe = c => regAgendas()[c.id] || espaceDefaut(c);
+const calInfo = id => AG.cals.find(c => c.id === id);
+const calsDe = sp => AG.cals.filter(c => espaceDe(c) === sp).map(c => c.id);
+const nomCal = c => !c ? 'Agenda' : c.prim ? 'Perso' : /@import\.calendar\.google\.com$/.test(c.id) && /^HYP\b/.test(c.n) ? 'Emploi du temps MBA' : c.n;
+const evsSemaine = w => (AG.sem[w] || { evs: [] }).evs;
+const dansSemaine = (e, w) => e.d <= addDays(w, 6) && (e.e || e.fd || e.d) >= w;
+const evCle = e => e.cal + '|' + e.id + '|' + e.d;
+const evOrdre = (a, b) => a.d.localeCompare(b.d) || (a.all ? 0 : 1) - (b.all ? 0 : 1) || String(a.s || '').localeCompare(String(b.s || ''));
+function evOn(ds, cals) {
+  return evsSemaine(lundiDe(ds)).filter(e => cals.includes(e.cal) && (e.all ? ds >= e.d && ds <= (e.e || e.d) : e.d === ds))
+    .sort((a, b) => (a.all ? 0 : 1) - (b.all ? 0 : 1) || String(a.s || '').localeCompare(String(b.s || '')));
+}
+function aVenir(cals, n) {
+  const t = auj(), vu = new Set(), out = [];
+  Object.keys(AG.sem).sort().forEach(w => evsSemaine(w).forEach(e => {
+    if (!cals.includes(e.cal) || e.d <= t || vu.has(evCle(e))) return;
+    vu.add(evCle(e)); out.push(e);
+  }));
+  return out.sort(evOrdre).slice(0, n);
+}
+function garderAgenda() {
+  const ref = lundiDe(auj());
+  Object.keys(AG.sem).forEach(w => { if (w < addDays(ref, -28) || w > addDays(ref, 7 * 26)) delete AG.sem[w]; });
+  if (!LS.set('ag', AG)) { AG.sem = {}; LS.set('ag', AG); }
+}
+async function chargerAgenda(lundi, nb) {
+  if (!CLE || AGS.enCours || URL_SCRIPT === 'A_REMPLIR') return;
+  AGS.enCours = true; AGS.essai = Date.now();
+  try {
+    const r = await appel({ a: 'agenda', k: CLE, de: lundi, jusqua: addDays(lundi, 7 * nb) });
+    if (r && r.ok) {
+      AG.cals = r.cals || [];
+      for (let i = 0; i < nb; i++) { const w = addDays(lundi, 7 * i); AG.sem[w] = { t: r.t, evs: (r.evs || []).filter(e => dansSemaine(e, w)) }; }
+      AG.t = r.t; garderAgenda();
+      Object.assign(AGS, { erreur: null, horsLigne: false });
+    } else if (r && r.code === 'lien') { ST.lien = true; ST.erreur = r.erreur; renderSync(); }
+    else AGS.erreur = r && r.erreur === 'action inconnue' ? 'Le script Google doit être mis à jour pour l\'agenda (version qg 2).' : 'Agenda indisponible : ' + ((r && r.erreur) || 'réponse inattendue de Google');
+  } catch (e) { AGS.horsLigne = true; }
+  AGS.enCours = false;
+  rafraichir();
+}
+// Au démarrage, au réveil et toutes les minutes : la semaine en cours et les 6 suivantes.
+function agendaAJour() {
+  const l = lundiDe(auj());
+  if ([l, addDays(l, 7)].some(w => !AG.sem[w] || Date.now() - AG.sem[w].t > VIEUX)) chargerAgenda(l, 7);
+}
+function chargerSiBesoin(w) {
+  if (AG.sem[w] && Date.now() - AG.sem[w].t < 2 * VIEUX) return;
+  if (AGS.enCours || Date.now() - AGS.essai < 15000) return;
+  setTimeout(() => chargerAgenda(w, 4), 0);
+}
+function agendaEtat() {
+  if (AGS.erreur) return AGS.erreur;
+  if (AGS.horsLigne) { const d = new Date(AG.t || 0); return AG.t ? `Hors ligne : agenda tel qu'il était le ${d.getDate()} ${MOISC[d.getMonth()]} à ${pad(d.getHours())}h${pad(d.getMinutes())}.` : 'Hors ligne : l\'agenda s\'affichera au retour du réseau.'; }
+  return '';
+}
+const EVX = {}; // événements affichés, retrouvés au toucher
+function evHTML(e) {
+  const c = calInfo(e.cal) || {}, k = evCle(e);
+  EVX[k] = e;
+  const tag = c.ro ? 'div' : 'button', at = c.ro ? '' : ` type="button" data-ev="${esc(k)}" title="${e.rec ? 'Événement répété' : 'Modifier ou supprimer'}"`;
+  const st = `--cc:${esc(c.c || '#8A96A3')}`;
+  if (e.all) return `<${tag}${at} class="ev all" style="${st}">${esc(e.t)}${e.e ? `<small>jusqu'au ${fmtCourt(e.e)}</small>` : e.lieu ? `<small>${esc(e.lieu)}</small>` : ''}</${tag}>`;
+  return `<${tag}${at} class="ev" style="${st}"><span class="dot"></span><span class="time">${hh(e.s)} – ${hh(e.f)}</span><span class="t">${esc(e.t)}${e.lieu ? `<small> · ${esc(e.lieu)}</small>` : ''}</span></${tag}>`;
+}
+function agendaBlock(sp, titre) {
+  const cals = calsDe(sp), etat = agendaEtat();
+  let corps;
+  if (!AG.cals.length) corps = `<p class="empty">${esc(etat || 'Chargement de l\'agenda…')}</p>`;
+  else {
+    const today = evOn(auj(), cals), next = aVenir(cals, 5);
+    corps = (today.length ? `<div class="row"><span class="when">Aujourd'hui</span><div class="evs">${today.map(evHTML).join('')}</div></div>` : '')
+      + (next.length ? next.map(e => `<div class="row"><span class="when">${fmtCourt(e.d)}</span><div class="evs">${evHTML(e)}</div></div>`).join('') : '<p class="empty">Rien de prévu ces prochaines semaines.</p>');
+  }
+  return `<div class="block a-agenda"><div class="bh"><h2>${titre}</h2><a class="link" href="#agenda" data-wk-now>Semaine ›</a></div><div class="panel">${corps}</div>${etat && AG.cals.length ? `<p class="cmeta">${esc(etat)}</p>` : ''}</div>`;
+}
+function prochainMatch() {
+  const t = auj(), cals = calsDe('raf'); let m = null;
+  Object.values(AG.sem).forEach(s => s.evs.forEach(e => { if (cals.includes(e.cal) && /\bRAF x\b/i.test(e.t) && e.d >= t && (!m || e.d < m.d)) m = e; }));
+  return m;
+}
+function matchBlock() {
+  const m = prochainMatch(); if (!m) return '';
+  const j = ecart(auj(), m.d);
+  const det = ['Match à domicile', m.cat ? `catégorie ${m.cat}` : '', m.all ? '' : `coup d'envoi ${hh(m.s)}`].filter(Boolean).join(', ');
+  return `<div class="match a-match"><span class="k">Prochain match à domicile</span><span class="t">${esc(m.t.replace(/^[^\p{L}\p{N}]+/u, ''))}</span><span class="d">${cap(fmtCourt(m.d))} · ${esc(det)}</span><span class="j">${j === 0 ? 'Jour J' : 'J-' + j}</span></div>`;
+}
+// « &Relation presse - MARTIN - MES5 26-27 » -> Relation presse, Martin
+function coursTexte(t) {
+  const p = String(t).split(' - ').map(x => x.trim());
+  let mat = (p[0] || '').replace(/&/g, '').replace(/^Evaluation/i, 'Évaluation').trim();
+  const prof = /^[A-ZÀ-Ý' -]+$/.test(p[1] || '') ? p[1].toLowerCase().replace(/(^|[ '-])\S/g, x => x.toUpperCase()) : (p[1] || '');
+  const ev = /^Évaluation/.test(mat), memo = p.slice(3).join(' - ').replace(/&/g, '').replace(/ - .*$/, '').replace(/^eval\s*/i, '').trim();
+  if (ev && memo) mat = 'Éval. ' + memo;
+  return { mat, prof, ev };
+}
+function coursBlock() {
+  const t = auj(), ws = lundiDe(t), cals = calsDe('cours');
+  const evs = evsSemaine(ws).filter(e => cals.includes(e.cal) && !e.all);
+  const days = [...Array(7)].map((_, i) => addDays(ws, i)).filter(d => evs.some(e => e.d === d));
+  if (!days.length) return '';
+  const sel = days.includes(S.cday) ? S.cday : days.includes(t) ? t : (days.find(d => d >= t) || days[0]);
+  const nT = evs.filter(e => e.d === t).length;
+  const nomJ = d => d === t ? 'Aujourd\'hui' : cap(fmtCourt(d));
+  return `<div class="block a-cours"><div class="bh"><h2>${nT ? `Cours aujourd'hui · ${nT} séance${nT > 1 ? 's' : ''}` : 'Semaine de cours'}</h2></div>
+    <div class="panel pad">
+      <div class="ctabs" role="group" aria-label="Jour">${days.map(d => `<button type="button" data-cday="${d}" aria-pressed="${d === sel}">${d === t ? 'Aujourd\'hui' : cap(fmtCourt(d).replace(/ \S+$/, ''))}</button>`).join('')}</div>
+      <div class="cdays" style="--n:${days.length}">${days.map(d => `<div class="cday${d === sel ? ' sel' : ''}${d === t ? ' is-today' : ''}"><h4>${nomJ(d)}</h4>${evs.filter(e => e.d === d).sort((a, b) => a.s.localeCompare(b.s)).map(e => {
+        const c = coursTexte(e.t);
+        return `<div class="course"><span class="time">${hh(e.s)} – ${hh(e.f)}</span><span class="t">${esc(c.mat)}${c.ev ? '<span class="chip">Éval</span>' : ''}</span>${c.prof ? `<span class="w">${esc(c.prof)}</span>` : ''}</div>`;
+      }).join('')}</div>`).join('')}</div>
+    </div></div>`;
+}
+function renderAgenda() {
+  const ws = S.week, we = addDays(ws, 6), vis = calsDe(S.mode), t = auj();
+  const charge = !!AG.sem[ws];
+  chargerSiBesoin(ws);
+  const etat = agendaEtat() || (!charge ? (AGS.enCours ? 'Chargement de la semaine…' : 'Semaine pas encore chargée.') : '');
+  const days = [...Array(7)].map((_, i) => addDays(ws, i));
+  $('#v-agenda').innerHTML = `<div class="block">
+    <div class="wk-bar">
+      <button class="btn" type="button" data-wk="-1" aria-label="Semaine précédente">‹</button>
+      <div class="lbl"><strong>Semaine ${isoWeek(jourDe(ws))}</strong><span>${plageTxt(ws, we)}</span></div>
+      <button class="btn" type="button" data-wk="1" aria-label="Semaine suivante">›</button>
+      <button class="btn" type="button" data-wk="0">Aujourd'hui</button>
+      <span class="sp"></span>
+      <button class="btn primary" type="button" data-new="event">+ Événement</button>
+    </div>
+    <div class="legend">${vis.map(id => { const c = calInfo(id); return `<span style="--cc:${esc(c.c || '#8A96A3')}"><i></i>${esc(nomCal(c))}</span>`; }).join('') || '<span>Aucun agenda dans cet espace.</span>'}<button type="button" class="link" data-goset="set-agendas">Choisir les agendas ›</button></div>
+    ${etat ? `<p class="notice">${esc(etat)}</p>` : ''}
+    <div class="week">${days.map(d => {
+      const evs = charge ? evOn(d, vis) : [], dd = jourDe(d);
+      return `<section class="day${d === t ? ' today' : ''}${evs.length ? '' : ' empty'}"><h3><span>${cap(JOURS[dd.getDay()].slice(0, 3))}.</span><span class="num">${dd.getDate()}</span></h3>
+        <div class="dbody">${evs.length ? `<div class="evs">${evs.map(evHTML).join('')}</div>` : `<p class="none">${charge ? 'Rien de prévu' : '…'}</p>`}</div></section>`;
+    }).join('')}</div></div>`;
+}
+
+// ---------- fenêtre d'un événement (ajout, modification, suppression dans Google Agenda)
+const EVF = { edit: null, delArm: false, envoi: false };
+function calOptions(sel) {
+  const ok = AG.cals.filter(c => !c.ro && (['perso', 'raf'].includes(espaceDe(c)) || c.id === sel));
+  ok.sort((a, b) => (espaceDe(b) === S.mode ? 1 : 0) - (espaceDe(a) === S.mode ? 1 : 0));
+  return ok.map(c => `<option value="${esc(c.id)}" ${c.id === sel ? 'selected' : ''}>${esc(nomCal(c))}${espaceDe(c) !== S.mode && ESPACES[espaceDe(c)] !== nomCal(c) ? ` · espace ${ESPACES[espaceDe(c)]}` : ''}</option>`).join('');
+}
+function majHeures() { const all = $('#ev-all').checked; $('#ev-hours').hidden = all; $('#ev-endday').hidden = !all; }
+function openEv(e) {
+  if (e && e.rec) { toast('Événement répété : modifie-le dans Google Agenda'); return; }
+  if (!AG.cals.length) { toast('L\'agenda n\'est pas encore chargé : vérifie le réseau'); return; }
+  $('#ov-add').hidden = true;
+  EVF.edit = e || null; EVF.delArm = false;
+  $('#ev-form').reset(); $('#ev-err').hidden = true;
+  $('#ev-h').textContent = e ? 'Modifier l\'événement' : 'Nouvel événement dans Google Agenda';
+  $('#ev-ok').textContent = e ? 'Enregistrer' : 'Ajouter à l\'agenda';
+  const del = $('#ev-del'); del.hidden = !e; del.textContent = 'Supprimer'; del.classList.remove('danger');
+  const defaut = e ? e.cal : (AG.cals.find(c => !c.ro && c.prim && espaceDe(c) === S.mode) || AG.cals.find(c => !c.ro && espaceDe(c) === S.mode) || {}).id;
+  $('#ev-cal').innerHTML = calOptions(defaut);
+  if (e) {
+    $('#ev-title').value = e.t; $('#ev-date').value = e.d; $('#ev-all').checked = !!e.all;
+    if (e.all) $('#ev-e').value = e.e || ''; else { $('#ev-start').value = e.s; $('#ev-end').value = e.f; }
+  } else $('#ev-date').value = S.view === 'agenda' && S.week !== lundiDe(auj()) ? S.week : auj();
+  majHeures();
+  $('#ov-ev').hidden = false; setTimeout(() => $('#ev-title').focus(), 30);
+}
+function fermerEv() { $('#ov-ev').hidden = true; EVF.edit = null; EVF.delArm = false; }
+async function envoyerEv(op) {
+  if (EVF.envoi) return;
+  const er = $('#ev-err'), e = EVF.edit; er.hidden = true;
+  const c = { a: 'evt', k: CLE, op, cal: op === 'suppr' ? e.cal : $('#ev-cal').value };
+  if (e) { c.id = e.id; c.calAvant = e.cal; }
+  if (op !== 'suppr') {
+    c.t = $('#ev-title').value.trim(); c.d = $('#ev-date').value; c.all = $('#ev-all').checked;
+    if (c.all) { const fin = $('#ev-e').value; if (fin && fin !== c.d) c.e = fin; } else { c.s = $('#ev-start').value; c.f = $('#ev-end').value; }
+    const msg = !c.t ? 'Écris un titre.' : !c.d ? 'Choisis un jour.' : !c.cal ? 'Choisis un agenda.'
+      : c.all ? (c.e && c.e < c.d ? 'La date de fin doit être après le début.' : '') : (!c.s || !c.f || c.f <= c.s ? 'L\'heure de fin doit être après l\'heure de début.' : '');
+    if (msg) { er.textContent = msg; er.hidden = false; return; }
+  }
+  const btn = op === 'suppr' ? $('#ev-del') : $('#ev-ok'), lib = btn.textContent;
+  EVF.envoi = true; btn.textContent = 'Envoi…'; ['#ev-ok', '#ev-del'].forEach(s => { $(s).disabled = true; });
+  let r;
+  try { r = await appel(c); } catch (x) { r = { ok: false, erreur: 'Pas de réseau : rien n\'est parti. Réessaie quand ça capte.' }; }
+  EVF.envoi = false; btn.textContent = lib; ['#ev-ok', '#ev-del'].forEach(s => { $(s).disabled = false; });
+  if (!r || !r.ok) { er.textContent = (r && r.erreur) || 'Google n\'a pas répondu, réessaie.'; er.hidden = false; if (op === 'suppr') { EVF.delArm = false; btn.textContent = 'Supprimer'; btn.classList.remove('danger'); } return; }
+  // La copie de l'appareil est corrigée tout de suite, Google renverra la version complète au prochain chargement.
+  if (e) Object.values(AG.sem).forEach(s => { s.evs = s.evs.filter(x => !(x.id === e.id && x.cal === e.cal)); });
+  if (r.ev) Object.keys(AG.sem).forEach(w => { if (dansSemaine(r.ev, w)) AG.sem[w].evs.push(r.ev); });
+  garderAgenda();
+  fermerEv();
+  if (op === 'ajout') { S.week = lundiDe(r.ev.d); if (S.view !== 'agenda') { location.hash = 'agenda'; return toast(`Ajouté dans l'agenda ${nomCal(calInfo(c.cal))}`); } }
+  render();
+  toast(op === 'suppr' ? 'Supprimé de Google Agenda' : op === 'modif' ? 'Modifié dans Google Agenda' : `Ajouté dans l'agenda ${nomCal(calInfo(c.cal))}`);
+}
+
 // ---------- état de l'écran
-const S = { mode: LS.get('mode', 'perso') === 'raf' ? 'raf' : 'perso', view: 'accueil', nt: 'taches', folder: 'all', q: '', open: null, delArm: false, fDel: null };
+const S = { mode: LS.get('mode', 'perso') === 'raf' ? 'raf' : 'perso', view: 'accueil', nt: 'taches', folder: 'all', q: '', open: null, delArm: false, fDel: null, week: lundiDe(auj()), cday: null };
 const PIN = '<svg viewBox="0 0 24 24" fill="currentColor" aria-label="Épinglée"><path d="M16 3H8v2l1 1v5l-3 3v2h5v6l1 1 1-1v-6h5v-2l-3-3V6l1-1z"/></svg>';
 const FLAG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 21V4h11l-1.5 4L16 12H7v9z"/></svg>';
 const FOLDER_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg>';
@@ -176,16 +392,20 @@ function pinsBlock(title) {
   return `<div class="block a-pins"><h2>${title}</h2>${pinned.length ? `<div class="grid">${pinned.map(n => cardHTML(n, false)).join('')}</div>` : '<div class="empty-state"><strong>Aucune note épinglée</strong>Ouvre une note et touche l\'épingle pour la retrouver ici.</div>'}</div>`;
 }
 function renderAccueil() {
-  let last = '';
   if (S.mode === 'raf') {
+    let last = '';
     const f = dossiers().filter(x => x.p && x.m === 'raf').slice(-1)[0];
     if (f) {
       const ns = notes().filter(n => n.f === f.id);
       last = `<div class="block a-last"><div class="bh"><h2>Dernier dossier de match · ${esc(f.n)}</h2><a class="link" href="#notes" data-gofolder="${f.id}">Dossier ›</a></div><div class="panel"><div class="mini-notes">${ns.map(n => `<button type="button" data-open="${n.id}">${esc(n.title || 'Sans titre')}<small>${quand(n.maj)}</small></button>`).join('') || '<p class="empty">Dossier vide.</p>'}</div></div></div>`;
     }
+    $('#v-accueil').innerHTML = `<div class="home raf">${matchBlock()}${urgentBlock()}${agendaBlock('raf', 'Agenda RAF')}${last}${pinsBlock('Notes épinglées RAF')}</div>`;
+    return;
   }
-  $('#v-accueil').innerHTML = `<div class="home">${urgentBlock()}${last}${pinsBlock(S.mode === 'raf' ? 'Notes épinglées RAF' : 'Notes épinglées')}
-    <p class="soon a-soon">Prochaines étapes : ${S.mode === 'raf' ? 'agenda RAF et prochain match' : 'où je suis, cours, repas et agenda perso'} arriveront ici.</p></div>`;
+  // Ordre voulu : Où je suis (étape 3), Cours, Tâches urgentes, Repas (étape 4), Agenda perso, Notes épinglées
+  const cours = coursBlock();
+  $('#v-accueil').innerHTML = `<div class="home perso${cours ? ' has-cours' : ''}">${cours}${urgentBlock()}${agendaBlock('perso', 'Agenda perso')}${pinsBlock('Notes épinglées')}
+    <p class="soon a-soon">Prochaines étapes : « Où je suis » et les repas arriveront ici.</p></div>`;
 }
 
 function renderNotes() {
@@ -235,6 +455,11 @@ function renderParams() {
   const theme = `<section class="set-sec" id="set-theme"><h3>Apparence</h3>
     <div class="seg" role="group" aria-label="Thème">${[['light', 'Clair'], ['dark', 'Sombre'], ['auto', 'Automatique']].map(([k, l]) => `<button type="button" data-theme-set="${k}" aria-pressed="${SET.theme === k}">${l}</button>`).join('')}</div>
     <p class="cmeta">Automatique suit le réglage de ton téléphone ou de ton PC. Ce choix est gardé sur cet appareil.</p></section>`;
+  const agendas = `<section class="set-sec" id="set-agendas"><h3>Agendas Google</h3>
+    <p class="cmeta">Choisis où chaque agenda apparaît. « Cours » alimente seulement le bloc des cours de l'accueil perso, les semaines où tu as cours. Ce choix vaut pour le téléphone et le PC.</p>
+    ${AG.cals.length ? `<div class="set-rows">${AG.cals.map(c => `<div class="set-row"><span class="nm" style="--cc:${esc(c.c || '#8A96A3')}"><i></i>${esc(nomCal(c))}${c.ro ? ' <small>· lecture seule</small>' : ''}</span>
+      <select data-cal-sp="${esc(c.id)}" aria-label="Où afficher ${esc(nomCal(c))}">${Object.entries(ESPACES).map(([v, l]) => `<option value="${v}" ${espaceDe(c) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`).join('')}</div>`
+      : `<p class="cmeta">${esc(agendaEtat() || 'Agendas pas encore chargés.')}</p>`}</section>`;
   const fs = dossiers();
   const fRows = m => fs.filter(f => !f.p && f.m === m).map(f => [f, ...fs.filter(c => c.p === f.id)]).flat().map(f => {
     const nb = notes().filter(n => n.f === f.id).length;
@@ -257,7 +482,7 @@ function renderParams() {
     <p class="cmeta">${INFO.t ? `Dernière synchro réussie : ${quand(INFO.t)}.` : 'Pas encore synchronisé.'} ${n ? `${n} modification${n > 1 ? 's' : ''} en attente d'envoi.` : 'Rien en attente.'}</p>
     <p class="cmeta">Tes notes sont gardées dans ce téléphone ou ce PC et dans ton Google Sheet « QG d'Aurélien ». Sans réseau, tu peux tout lire, cocher et écrire : l'envoi se fait au retour du réseau.</p>
     <div class="set-row"><button type="button" class="btn primary small" data-sync-now>Synchroniser maintenant</button></div></section>`;
-  $('#v-parametres').innerHTML = `<div class="set">${theme}${dossiersSec}${syncSec}</div>`;
+  $('#v-parametres').innerHTML = `<div class="set">${theme}${agendas}${dossiersSec}${syncSec}</div>`;
 }
 
 function renderSetup() {
@@ -267,7 +492,7 @@ function renderSetup() {
     <div><button class="btn primary" type="submit">Brancher</button></div></form>`;
 }
 
-const VIEWS = ['accueil', 'notes', 'parametres'];
+const VIEWS = ['accueil', 'agenda', 'notes', 'parametres'];
 function render() {
   document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === S.mode));
   const setup = !CLE;
@@ -279,6 +504,7 @@ function render() {
   $('#foot').textContent = INFO.t ? `Dernière synchro : ${quand(INFO.t)}` : '';
   if (setup) { $('#h1').textContent = 'Bienvenue'; $('#sub').textContent = 'Une seule fois par appareil'; renderSetup(); return; }
   if (S.view === 'accueil') { $('#h1').textContent = cap(`${JOURS[now.getDay()]} ${now.getDate()} ${MOIS[now.getMonth()]}`); $('#sub').textContent = `${sp} · semaine ${isoWeek(now)}`; renderAccueil(); }
+  if (S.view === 'agenda') { $('#h1').textContent = 'Agenda'; $('#sub').textContent = `${sp} · Google Agenda`; renderAgenda(); }
   if (S.view === 'notes') {
     $('#h1').textContent = 'Notes et tâches'; $('#sub').textContent = sp;
     const had = document.activeElement && document.activeElement.id === 'q', pos = had ? document.activeElement.selectionStart : 0;
@@ -286,7 +512,7 @@ function render() {
     if (had) { const i = $('#q'); i.focus(); i.setSelectionRange(pos, pos); }
   }
   if (S.view === 'parametres') {
-    $('#h1').textContent = 'Paramètres'; $('#sub').textContent = 'Thème, dossiers et synchronisation';
+    $('#h1').textContent = 'Paramètres'; $('#sub').textContent = 'Thème, agendas, dossiers et synchronisation';
     if (!(document.activeElement && document.activeElement.closest && document.activeElement.closest('#v-parametres'))) renderParams();
   }
 }
@@ -356,8 +582,20 @@ document.addEventListener('click', e => {
   const md = t.closest('[data-mode]');
   if (md) { S.mode = md.dataset.mode; LS.set('mode', S.mode); S.q = ''; if (S.view === 'parametres') { S.view = 'accueil'; history.pushState(null, '', '#accueil'); } render(); window.scrollTo(0, 0); return; }
   const nw = t.closest('[data-new]');
-  if (nw) { if (!CLE) return; const k = nw.dataset.new; if (k === 'menu') $('#ov-add').hidden = false; else newNote(k); return; }
+  if (nw) { if (!CLE) return; const k = nw.dataset.new; if (k === 'menu') $('#ov-add').hidden = false; else if (k === 'event') openEv(); else newNote(k); return; }
   if (t === $('#ov-add')) { $('#ov-add').hidden = true; return; }
+  if (!$('#ov-ev').hidden && t.closest('#ov-ev')) {
+    if (t === $('#ov-ev') || t.closest('#ev-cancel')) { fermerEv(); return; }
+    if (t.closest('#ev-del')) {
+      if (!EVF.delArm) { EVF.delArm = true; $('#ev-del').textContent = 'Confirmer la suppression'; $('#ev-del').classList.add('danger'); return; }
+      envoyerEv('suppr'); return;
+    }
+    return;
+  }
+  const ev = t.closest('[data-ev]'); if (ev) { openEv(EVX[ev.dataset.ev]); return; }
+  const wk = t.closest('[data-wk]'); if (wk) { const v = +wk.dataset.wk; S.week = v === 0 ? lundiDe(auj()) : addDays(S.week, 7 * v); renderAgenda(); return; }
+  if (t.closest('[data-wk-now]')) { S.week = lundiDe(auj()); if (S.view === 'agenda') { e.preventDefault(); render(); } return; }
+  const cd = t.closest('[data-cday]'); if (cd) { S.cday = cd.dataset.cday; renderAccueil(); return; }
   if (t.closest('label.ck')) return;
   const op = t.closest('[data-open]'); if (op) { openEditor(op.dataset.open); return; }
   const gs = t.closest('[data-goset]'); if (gs) { goSection(gs.dataset.goset); return; }
@@ -407,7 +645,7 @@ document.addEventListener('click', e => {
   }
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { if (!$('#ov-editor').hidden) closeEditor(); else $('#ov-add').hidden = true; }
+  if (e.key === 'Escape') { if (!$('#ov-ev').hidden) fermerEv(); else if (!$('#ov-editor').hidden) closeEditor(); else $('#ov-add').hidden = true; }
   if (e.key === 'Enter' && e.target.matches('[data-open]')) openEditor(e.target.dataset.open);
 });
 document.addEventListener('change', e => {
@@ -421,6 +659,13 @@ document.addEventListener('change', e => {
   if (t.id === 'ed-folder') { const n = note(); n.f = t.value; touch(n); toast(`Rangée dans ${dossierNom(t.value)}`); return; }
   if (t.matches('[data-f-parent]')) { const f = dossier(t.dataset.fParent); if (t.value) f.p = t.value; else delete f.p; enregistrer('dossiers', f); renderParams(); return; }
   if (t.matches('[data-f-name]')) { renderParams(); return; }
+  if (t.matches('[data-cal-sp]')) {
+    const c = calInfo(t.dataset.calSp); if (!c) return;
+    const v = Object.assign({}, regAgendas(), { [c.id]: t.value });
+    enregistrer('reglages', { id: 'agendas', v }); renderParams(); toast(`${nomCal(c)} : ${ESPACES[t.value]}`); return;
+  }
+  if (t.id === 'ev-all') { majHeures(); return; }
+  if (t.id === 'ev-start') { const s = t.value, f = $('#ev-end').value; if (s && (!f || f <= s)) { const [h, m] = s.split(':').map(Number); $('#ev-end').value = `${pad(Math.min(23, h + 1))}:${pad(h >= 23 ? 59 : m)}`; } return; }
 });
 document.addEventListener('input', e => {
   const t = e.target, n = note();
@@ -438,6 +683,7 @@ document.addEventListener('paste', e => {
 document.addEventListener('submit', e => {
   e.preventDefault();
   const id = e.target.id;
+  if (id === 'ev-form') { envoyerEv(EVF.edit ? 'modif' : 'ajout'); return; }
   if (id === 'add-item') {
     const i = $('#new-item'), v = i.value.trim(); if (!v) return; const n = note();
     const fd = n.items.findIndex(x => x.ok); n.items.splice(fd < 0 ? n.items.length : fd, 0, { t: v }); touch(n); renderEditor(true); return;
@@ -458,8 +704,8 @@ document.addEventListener('submit', e => {
 // ---------- navigation et réveils
 function route() { const h = location.hash.slice(1); S.view = VIEWS.includes(h) ? h : 'accueil'; render(); window.scrollTo(0, 0); }
 window.addEventListener('hashchange', route);
-window.addEventListener('online', () => { ST.horsLigne = false; synchroniser(); });
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') synchroniser(); });
-setInterval(() => { if (document.visibilityState === 'visible') synchroniser(); }, 60000);
+window.addEventListener('online', () => { ST.horsLigne = false; AGS.horsLigne = false; synchroniser(); agendaAJour(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { synchroniser(); agendaAJour(); } });
+setInterval(() => { if (document.visibilityState === 'visible') { synchroniser(); agendaAJour(); } }, 60000);
 if ('serviceWorker' in navigator && !LOCAL) navigator.serviceWorker.register('sw.js').catch(() => { });
-renderSync(); route(); synchroniser();
+renderSync(); route(); synchroniser(); agendaAJour();

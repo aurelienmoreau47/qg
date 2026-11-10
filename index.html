@@ -120,8 +120,10 @@ main{max-width:1240px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-le
 .home{display:grid;gap:20px}
 .home>*{min-width:0}
 @media (min-width:1100px){
-  .home{grid-template-columns:minmax(0,400px) minmax(0,1fr);grid-template-areas:"urgent pins" "last pins" "soon pins";align-items:start}
-  .a-urgent{grid-area:urgent}.a-pins{grid-area:pins}.a-last{grid-area:last}.a-soon{grid-area:soon}
+  .home.perso{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"urgent agenda" "pins pins" "soon soon";align-items:start}
+  .home.perso.has-cours{grid-template-areas:"cours cours" "urgent agenda" "pins pins" "soon soon"}
+  .home.raf{grid-template-columns:minmax(0,400px) minmax(0,1fr);grid-template-areas:"match pins" "urgent pins" "agenda pins" "last pins";align-items:start}
+  .a-urgent{grid-area:urgent}.a-pins{grid-area:pins}.a-last{grid-area:last}.a-soon{grid-area:soon}.a-agenda{grid-area:agenda}.a-cours{grid-area:cours}.a-match{grid-area:match}
 }
 .block{display:flex;flex-direction:column;gap:10px}
 .bh{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
@@ -129,6 +131,82 @@ main{max-width:1240px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-le
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:6px 14px}
 .panel.pad{padding:14px;display:flex;flex-direction:column;gap:12px}
 .panel .empty{padding:12px 0;color:var(--muted)}
+.panel .row{display:grid;grid-template-columns:76px minmax(0,1fr);gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.panel .row:first-child{border-top:0}
+.panel .row .when{font-size:13px;color:var(--muted);font-weight:600;padding-top:1px}
+.match{background:var(--jaune);color:var(--jaune-ink);border-radius:var(--r);padding:16px 18px;display:grid;grid-template-columns:1fr auto;gap:2px 16px;align-items:center}
+.match .k{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.75}
+.match .t{font-family:var(--f-display);font-size:22px;font-weight:650;line-height:1.15}
+.match .d{font-size:14px;opacity:.85}
+.match .j{grid-row:1 / span 3;grid-column:2;font-family:var(--f-display);font-size:46px;font-weight:700;line-height:1;letter-spacing:-.02em}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--muted);align-items:center}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:9px;height:9px;border-radius:50%;background:var(--cc)}
+
+/* Cours */
+.ctabs{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
+.ctabs button{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:6px 12px;font-weight:600;font-size:13.5px;white-space:nowrap}
+.ctabs button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.cdays{display:grid;gap:12px}
+.cday{display:none;flex-direction:column;gap:10px;min-width:0}
+.cday.sel{display:flex}
+.cday h4{display:none;font-size:13px;color:var(--muted);font-weight:700}
+.cday.is-today h4{color:var(--ink)}
+.course{display:grid;grid-template-columns:auto minmax(0,1fr);gap:1px 10px;font-size:14px}
+.course .time{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums;padding-top:1px}
+.course .t{font-weight:600;overflow-wrap:anywhere}
+.course .w{grid-column:2;color:var(--muted);font-size:13px}
+.chip{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-radius:6px;padding:1px 6px;margin-left:6px;vertical-align:1px;background:color-mix(in srgb,var(--warn) 20%,var(--surface));color:var(--warn)}
+@media (min-width:1100px){
+  .ctabs{display:none}
+  .cdays{grid-template-columns:repeat(var(--n),minmax(0,1fr))}
+  .cday,.cday.sel{display:flex}
+  .cday h4{display:block}
+  .cday+.cday{border-left:1px solid var(--line);padding-left:12px}
+}
+
+/* Événements */
+.ev{display:grid;grid-template-columns:8px minmax(0,1fr);gap:1px 8px;align-items:center;font-size:14px;min-width:0;border:0;background:none;padding:0;text-align:left;width:100%;color:var(--ink)}
+button.ev:hover .t,button.ev.all:hover{text-decoration:underline}
+.ev .dot{width:8px;height:8px;border-radius:50%;background:var(--cc)}
+.ev .time{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ev .t{grid-column:2;font-weight:600;overflow-wrap:anywhere}
+.ev .t small{font-weight:400;color:var(--muted);font-size:13px}
+.ev.all{display:block;background:color-mix(in srgb,var(--cc) 18%,var(--surface));border-radius:8px;padding:5px 9px;font-weight:600;overflow-wrap:anywhere}
+.ev.all small{display:block;font-weight:400;color:var(--muted);font-size:12px}
+.evs{display:flex;flex-direction:column;gap:9px}
+
+/* Semaine */
+.wk-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.wk-bar .lbl{display:flex;flex-direction:column;min-width:140px;padding:0 4px}
+.wk-bar .lbl strong{font-family:var(--f-display);font-size:19px;font-weight:650}
+.wk-bar .lbl span{font-size:13px;color:var(--muted)}
+.wk-bar .sp{flex:1}
+.notice{font-size:13px;color:var(--muted);background:var(--surface-2);border:1px dashed var(--line);border-radius:10px;padding:8px 12px}
+.week{display:grid;gap:8px}
+.day{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:grid;grid-template-columns:44px minmax(0,1fr);gap:10px;min-width:0}
+.day h3{font-size:13px;font-weight:600;color:var(--muted);display:flex;flex-direction:column;align-items:flex-start;line-height:1.1}
+.day h3 .num{font-family:var(--f-display);font-size:22px;font-weight:650;color:var(--ink);margin-top:2px;padding:1px 6px;margin-left:-6px;border-radius:8px}
+.day.today h3 .num{background:var(--jaune);color:var(--jaune-ink)}
+.dbody{display:flex;flex-direction:column;gap:8px;min-width:0}
+.day .none{color:var(--muted);font-size:13px}
+.day.empty .dbody{align-self:center}
+@media (min-width:1080px){
+  .week{grid-template-columns:repeat(7,minmax(0,1fr))}
+  .day{grid-template-columns:1fr;align-content:start;min-height:420px;padding:10px}
+  .day.empty .dbody{align-self:start}
+}
+
+/* Formulaire d'événement */
+.form{display:grid;gap:12px}
+.form label{display:grid;gap:4px;font-size:13px;font-weight:600;color:var(--muted)}
+.form input:not([type=checkbox]),.form select{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 10px;font-size:15px;color:var(--ink);font-weight:400;min-width:0;width:100%}
+.form .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.form .two>*{min-width:0}
+.form .chk{display:flex;align-items:center;gap:8px;color:var(--ink);font-weight:500;font-size:14px}
+.form .err{color:var(--danger);font-size:14px;font-weight:600}
+.form .acts{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.form .acts .sp{flex:1}
 .mini-notes{display:flex;flex-direction:column}
 .mini-notes button{display:flex;justify-content:space-between;gap:10px;align-items:center;border:0;border-top:1px solid var(--line);background:none;padding:11px 0;text-align:left;font-weight:600}
 .mini-notes button:first-child{border-top:0}
@@ -198,6 +276,9 @@ main{max-width:1240px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-le
 .set-row .in{flex:1 1 140px;min-width:0;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:7px 10px;font-size:15px}
 .set-row select{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:7px 8px;font-size:14px;max-width:100%}
 .set-row.child{padding-left:22px}
+.set-row .nm{flex:1 1 140px;min-width:0;font-weight:600;display:flex;align-items:center;gap:8px;overflow-wrap:anywhere}
+.set-row .nm i{width:10px;height:10px;border-radius:50%;background:var(--cc);flex-shrink:0}
+.set-row .nm small{color:var(--muted);font-weight:500}
 
 /* Accueil sans lien */
 .setup{max-width:560px;display:flex;flex-direction:column;gap:14px}
@@ -239,7 +320,7 @@ main{max-width:1240px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-le
 .sw button{width:24px;height:24px;border-radius:50%;border:1px solid color-mix(in srgb,var(--ink) 25%,transparent);background:var(--sc)}
 .sw button[aria-pressed="true"]{outline:2px solid var(--accent);outline-offset:1px}
 .add-pad{padding:20px;display:flex;flex-direction:column;gap:14px}
-.choices{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.choices{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .choices button{border:1px solid var(--line);background:var(--surface-2);border-radius:14px;padding:16px 6px;display:flex;flex-direction:column;align-items:center;gap:8px;font-weight:600;font-size:14px}
 .choices svg{width:24px;height:24px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(92px + env(safe-area-inset-bottom,0px));z-index:60;background:var(--accent);color:var(--accent-ink);padding:10px 16px;border-radius:12px;font-weight:600;font-size:14px;max-width:calc(100% - 32px);box-shadow:0 6px 20px rgba(0,0,0,.2)}
@@ -252,6 +333,7 @@ main{max-width:1240px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-le
   <nav class="nav" aria-label="Navigation">
     <div class="brand">QG d'Aurélien<small>Perso et RAF</small></div>
     <a href="#accueil" data-view="accueil"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg></span>Accueil</a>
+    <a href="#agenda" data-view="agenda" data-wk-now><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16.5" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></svg></span>Agenda</a>
     <button class="plus" type="button" data-new="menu" aria-label="Ajouter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">Nouveau</span></button>
     <a href="#notes" data-view="notes"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10l4 4v14H5z"/><path d="m9 11 1.5 1.5L13 10M9 16h6"/></svg></span>Notes</a>
     <a href="#parametres" data-view="parametres" class="desk"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/></svg></span>Paramètres</a>
@@ -271,6 +353,7 @@ main{max-width:1240px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-le
     <div class="top"><h1 id="h1"></h1><p class="sub" id="sub"></p></div>
     <section id="v-setup" hidden></section>
     <section id="v-accueil"></section>
+    <section id="v-agenda" hidden></section>
     <section id="v-notes" hidden></section>
     <section id="v-parametres" hidden></section>
   </main>
@@ -303,9 +386,29 @@ main{max-width:1240px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-le
       <div class="choices">
         <button type="button" data-new="list"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="5" rx="1"/><path d="m4.5 6.5 1 1 2-2M11 6.5h10M11 15.5h10"/><rect x="3" y="13" width="5" height="5" rx="1"/></svg>Liste de tâches</button>
         <button type="button" data-new="text"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10l4 4v14H5z"/><path d="M9 11h6M9 15h6"/></svg>Note</button>
+        <button type="button" data-new="event"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16.5" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4M12 12.5v5M9.5 15h5"/></svg>Événement</button>
       </div>
-      <p class="cmeta">L'agenda, les lieux et les repas arrivent aux prochaines étapes.</p>
+      <p class="cmeta">Les lieux et les repas arrivent aux prochaines étapes.</p>
     </div>
+  </div>
+</div>
+
+<div class="overlay" id="ov-ev" hidden>
+  <div class="sheet small" role="dialog" aria-modal="true" aria-labelledby="ev-h">
+    <form class="add-pad form" id="ev-form" novalidate>
+      <h2 id="ev-h">Nouvel événement dans Google Agenda</h2>
+      <label>Titre<input id="ev-title" autocomplete="off" maxlength="200" placeholder="Ex. : Réunion Melvyn"></label>
+      <label>Jour<input id="ev-date" type="date"></label>
+      <label class="chk"><input id="ev-all" type="checkbox"> Toute la journée</label>
+      <label id="ev-endday" hidden>Jusqu'au (facultatif)<input id="ev-e" type="date"></label>
+      <div class="two" id="ev-hours">
+        <label>Début<input id="ev-start" type="time" value="10:00"></label>
+        <label>Fin<input id="ev-end" type="time" value="11:00"></label>
+      </div>
+      <label>Agenda<select id="ev-cal"></select></label>
+      <p class="err" id="ev-err" role="alert" hidden></p>
+      <div class="acts"><button class="btn" type="button" id="ev-del" hidden>Supprimer</button><span class="sp"></span><button class="btn" type="button" id="ev-cancel">Annuler</button><button class="btn primary" type="submit" id="ev-ok">Ajouter à l'agenda</button></div>
+    </form>
   </div>
 </div>
 

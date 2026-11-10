@@ -1,5 +1,5 @@
 'use strict';
-// QG d'Aurélien, étape 2 : notes, tâches, dossiers + Google Agenda (semaine, cours, prochain match).
+// QG d'Aurélien, étape 3 : notes, tâches, dossiers + Google Agenda (semaine, cours, prochain match) + Où je suis (lieux, week-ends libres).
 // Tout ce qui est modifié est gardé dans l'appareil tout de suite, puis envoyé au Google Sheet dès que ça capte.
 // Le Sheet renvoie tout : c'est comme ça que le téléphone et le PC restent pareils.
 
@@ -284,12 +284,17 @@ function coursBlock() {
     </div></div>`;
 }
 function renderAgenda() {
+  lieuxCtx();
+  const vue = `<div class="seg" role="group" aria-label="Vue"><button type="button" data-ag="semaine" aria-pressed="${S.ag === 'semaine'}">Semaine</button><button type="button" data-ag="mois" aria-pressed="${S.ag === 'mois'}">Mois · Où je suis</button></div>`;
+  $('#v-agenda').innerHTML = `<div class="block">${vue}${S.ag === 'mois' ? moisHTML() : semaineHTML()}</div>`;
+}
+function semaineHTML() {
   const ws = S.week, we = addDays(ws, 6), vis = calsDe(S.mode), t = auj();
   const charge = !!AG.sem[ws];
   chargerSiBesoin(ws);
   const etat = agendaEtat() || (!charge ? (AGS.enCours ? 'Chargement de la semaine…' : 'Semaine pas encore chargée.') : '');
   const days = [...Array(7)].map((_, i) => addDays(ws, i));
-  $('#v-agenda').innerHTML = `<div class="block">
+  return `
     <div class="wk-bar">
       <button class="btn" type="button" data-wk="-1" aria-label="Semaine précédente">‹</button>
       <div class="lbl"><strong>Semaine ${isoWeek(jourDe(ws))}</strong><span>${plageTxt(ws, we)}</span></div>
@@ -301,10 +306,109 @@ function renderAgenda() {
     <div class="legend">${vis.map(id => { const c = calInfo(id); return `<span style="--cc:${esc(c.c || '#8A96A3')}"><i></i>${esc(nomCal(c))}</span>`; }).join('') || '<span>Aucun agenda dans cet espace.</span>'}<button type="button" class="link" data-goset="set-agendas">Choisir les agendas ›</button></div>
     ${etat ? `<p class="notice">${esc(etat)}</p>` : ''}
     <div class="week">${days.map(d => {
-      const evs = charge ? evOn(d, vis) : [], dd = jourDe(d);
+      const evs = charge ? evOn(d, vis) : [], dd = jourDe(d), p = lieuDu(d);
       return `<section class="day${d === t ? ' today' : ''}${evs.length ? '' : ' empty'}"><h3><span>${cap(JOURS[dd.getDay()].slice(0, 3))}.</span><span class="num">${dd.getDate()}</span></h3>
-        <div class="dbody">${evs.length ? `<div class="evs">${evs.map(evHTML).join('')}</div>` : `<p class="none">${charge ? 'Rien de prévu' : '…'}</p>`}</div></section>`;
-    }).join('')}</div></div>`;
+        <div class="dbody"><button type="button" class="where" data-day="${d}" style="--pc:${esc(couleurLieu(p))}" title="Changer le lieu"><i${p.libre ? ' class="free"' : ''}></i>${esc(nomLieu(p))}</button>${evs.length ? `<div class="evs">${evs.map(evHTML).join('')}</div>` : `<p class="none">${charge ? 'Rien de prévu' : '…'}</p>`}</div></section>`;
+    }).join('')}</div>`;
+}
+
+// ---------- Où je suis
+// Gardé dans l'onglet « Réglages » du Sheet : « lieux » = la liste des lieux et le lieu par défaut,
+// une ligne « ou-… » par période saisie. La saisie la plus récente gagne sur les jours qu'elle couvre.
+const LIEUX_DEPART = { rodez: { n: 'Rodez', c: '#C4473A' }, urcisse: { n: 'St Urcisse', c: '#3F8F4F' }, mtp: { n: 'Montpellier', c: '#356FC4' }, leucate: { n: 'Port Leucate', c: '#C98F22' } };
+const INIT = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
+function regLieux() {
+  const r = DB.reglages.lieux, v = r && !r.suppr && r.v;
+  return { l: (v && v.l) || LIEUX_DEPART, def: v && 'def' in v ? v.def : 'rodez' };
+}
+function garderLieux(l, def) { enregistrer('reglages', { id: 'lieux', v: { l, def } }); }
+const periodes = () => Object.values(DB.reglages).filter(r => /^ou-/.test(r.id) && !r.suppr && r.v && r.v.d && r.v.e).sort((a, b) => (a.v.t || 0) - (b.v.t || 0));
+// Contexte recalculé à chaque affichage : lieux, périodes, jours de match à domicile.
+let CX = null;
+function lieuxCtx() {
+  const mj = new Set(), cals = calsDe('raf');
+  Object.values(AG.sem).forEach(s => s.evs.forEach(e => { if (cals.includes(e.cal) && /\bRAF x\b/i.test(e.t)) mj.add(e.d); }));
+  CX = Object.assign(regLieux(), { ps: periodes(), mj });
+  return CX;
+}
+function lieuDu(ds) {
+  const L = CX.l;
+  for (let i = CX.ps.length - 1; i >= 0; i--) {
+    const r = CX.ps[i].v;
+    if (ds >= r.d && ds <= r.e && (r.p === 'libre' || L[r.p])) return r.p === 'libre' ? { libre: true } : { p: r.p };
+  }
+  const semaine = (jourDe(ds).getDay() + 6) % 7 < 5;
+  if ((semaine || CX.mj.has(ds)) && L[CX.def]) return { p: CX.def, auto: true };
+  return { libre: true, vide: true };
+}
+const nomLieu = p => p.libre ? 'Libre' : CX.l[p.p].n;
+const couleurLieu = p => p.libre ? 'var(--ok)' : CX.l[p.p].c;
+const nomCourt = n => n.length <= 5 ? n : n.slice(0, 4).trim() + '.';
+const weLibre = d => lieuDu(d).libre && lieuDu(addDays(d, 1)).libre;
+function prochainWeLibre(de) {
+  for (let i = 0; i < 200; i++) {
+    const d = addDays(de, i);
+    if (jourDe(d).getDay() === 6 && weLibre(d)) {
+      const a = jourDe(d), b = jourDe(addDays(d, 1));
+      return `sam. ${a.getDate()}${a.getMonth() !== b.getMonth() ? ' ' + MOISC[a.getMonth()] : ''} – dim. ${b.getDate()} ${MOISC[b.getMonth()]}`;
+    }
+  }
+  return 'aucun dans les 6 prochains mois';
+}
+function weLibresDuMois(ym) {
+  const out = []; let d = ym + '-01';
+  while (d.slice(0, 7) === ym) { if (jourDe(d).getDay() === 6 && weLibre(d)) out.push(plageTxt(d, addDays(d, 1))); d = addDays(d, 1); }
+  return out;
+}
+function locBlock() {
+  const t = auj(), now = lieuDu(t), days = [...Array(14)].map((_, i) => addDays(t, i));
+  const vus = [...new Set(days.map(lieuDu).filter(p => !p.libre).map(p => p.p))];
+  return `<div class="block a-loc"><div class="bh"><h2>Où je suis</h2><a class="link" href="#agenda" data-goto="mois">Voir le mois ›</a></div>
+    <div class="panel pad">
+      <p class="loc-now"><span>Aujourd'hui</span><strong style="color:${esc(couleurLieu(now))}">${esc(nomLieu(now))}</strong></p>
+      <div class="strip">${days.map(d => {
+        const p = lieuDu(d), dd = jourDe(d), lib = `${fmtCourt(d)} : ${esc(nomLieu(p))}${p.auto ? ' (par défaut)' : ''}`;
+        return `<button type="button" class="sc${p.libre ? ' free' : ''}${p.auto ? ' auto' : ''}${d === t ? ' today' : ''}" data-day="${d}" style="--pc:${esc(couleurLieu(p))}" title="${lib}" aria-label="${lib}"><span>${INIT[dd.getDay()]}</span><b>${dd.getDate()}</b></button>`;
+      }).join('')}</div>
+      <div class="legend">${vus.map(k => `<span style="--cc:${esc(CX.l[k].c)}"><i></i>${esc(CX.l[k].n)}</span>`).join('')}<span><i class="free"></i>Libre</span></div>
+      <p class="nf">Prochain week-end libre : <strong>${prochainWeLibre(t)}</strong></p>
+    </div></div>`;
+}
+function moisHTML() {
+  const ym = S.month, first = ym + '-01', start = lundiDe(first), t = auj();
+  // Les jours de match viennent de l'agenda : on charge les semaines du mois affiché si besoin.
+  const sems = [...Array(6)].map((_, i) => addDays(start, 7 * i));
+  if (CLE && sems.some(w => !AG.sem[w] || Date.now() - AG.sem[w].t > 2 * VIEUX) && !AGS.enCours && Date.now() - AGS.essai > 15000) setTimeout(() => chargerAgenda(start, 6), 0);
+  const fd = jourDe(first);
+  let cells = '', d = start;
+  for (let i = 0; i < 42; i++) {
+    if (i % 7 === 0 && i > 0 && d.slice(0, 7) !== ym) break;
+    const p = lieuDu(d), dd = jourDe(d), autre = d.slice(0, 7) !== ym, match = CX.mj.has(d);
+    cells += `<button type="button" class="mcell${autre ? ' other' : ''}${p.libre ? ' free' : ''}${p.auto ? ' auto' : ''}${d === t ? ' today' : ''}${d < t ? ' past' : ''}" ${autre ? 'tabindex="-1" aria-hidden="true"' : `data-day="${d}"`} style="--pc:${esc(couleurLieu(p))}" aria-label="${cap(fmtCourt(d))} : ${esc(nomLieu(p))}${match ? ', match' : ''}">
+      <span class="mn">${dd.getDate()}</span><span class="pl"><span class="long">${esc(nomLieu(p))}</span><span class="short">${esc(p.libre ? 'Libre' : nomCourt(nomLieu(p)))}</span></span>${match ? '<span class="mt">Match</span>' : ''}</button>`;
+    d = addDays(d, 1);
+  }
+  const fw = weLibresDuMois(ym), def = CX.l[CX.def];
+  return `<div class="mbar"><button class="btn" type="button" data-mo="-1" aria-label="Mois précédent">‹</button><strong>${cap(MOIS[fd.getMonth()])} ${fd.getFullYear()}</strong><button class="btn" type="button" data-mo="1" aria-label="Mois suivant">›</button><button class="btn" type="button" data-mo="0">Ce mois</button><span class="sp"></span><button class="btn primary" type="button" data-day="${t}">+ Lieu</button></div>
+    <div class="legend">${Object.values(CX.l).map(p => `<span style="--cc:${esc(p.c)}"><i></i>${esc(p.n)}</span>`).join('')}<span><i class="free"></i>Libre</span><button type="button" class="link" data-goset="set-lieux">Gérer les lieux ›</button></div>
+    <div class="panel pad"><div class="month">${['L', 'M', 'M', 'J', 'V', 'S', 'D'].map(x => `<span class="mh">${x}</span>`).join('')}${cells}</div></div>
+    <div class="block"><h2>Week-ends libres en ${MOIS[fd.getMonth()]}</h2>${fw.length ? `<div class="freelist">${fw.map(x => `<span>${x}</span>`).join('')}</div>` : '<p class="cmeta">Aucun : tous tes week-ends sont pris.</p>'}</div>
+    <p class="cmeta">Touche un jour pour dire où tu es. En semaine et les jours de match, sans rien de noté, l'appli te met à ${esc(def ? def.n : '…')} (en plus pâle). Un week-end sans rien de noté est libre.</p>`;
+}
+function openPlace(ds) {
+  lieuxCtx();
+  const p = lieuDu(ds), cur = p.auto || p.vide ? '' : p.libre ? 'libre' : p.p;
+  $('#ov-add').hidden = true;
+  $('#pl-d').value = ds; $('#pl-e').value = ds; $('#pl-err').hidden = true;
+  $('#pl-list').innerHTML = Object.entries(CX.l).map(([k, v]) => `<label style="--pc:${esc(v.c)}"><input type="radio" name="pl" value="${esc(k)}" ${k === cur ? 'checked' : ''}><i></i>${esc(v.n)}</label>`).join('')
+    + `<label class="free" style="--pc:var(--ok)"><input type="radio" name="pl" value="libre" ${cur === 'libre' ? 'checked' : ''}><i></i>Libre</label>`;
+  $('#ov-place').hidden = false;
+}
+function fermerPlace() { $('#ov-place').hidden = true; }
+function enregistrerPeriode(p, d, e) {
+  // Les anciennes saisies entièrement recouvertes ne servent plus : on les retire pour garder le Sheet lisible.
+  periodes().filter(r => r.v.d >= d && r.v.e <= e).forEach(r => { r.suppr = true; enregistrer('reglages', r); });
+  enregistrer('reglages', { id: idNouveau('ou-'), v: { p, d, e, t: Date.now() } });
 }
 
 // ---------- fenêtre d'un événement (ajout, modification, suppression dans Google Agenda)
@@ -363,7 +467,7 @@ async function envoyerEv(op) {
 }
 
 // ---------- état de l'écran
-const S = { mode: LS.get('mode', 'perso') === 'raf' ? 'raf' : 'perso', view: 'accueil', nt: 'taches', folder: 'all', q: '', open: null, delArm: false, fDel: null, week: lundiDe(auj()), cday: null };
+const S = { mode: LS.get('mode', 'perso') === 'raf' ? 'raf' : 'perso', view: 'accueil', nt: 'taches', folder: 'all', q: '', open: null, delArm: false, fDel: null, week: lundiDe(auj()), cday: null, ag: 'semaine', month: auj().slice(0, 7), plDel: null };
 const PIN = '<svg viewBox="0 0 24 24" fill="currentColor" aria-label="Épinglée"><path d="M16 3H8v2l1 1v5l-3 3v2h5v6l1 1 1-1v-6h5v-2l-3-3V6l1-1z"/></svg>';
 const FLAG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 21V4h11l-1.5 4L16 12H7v9z"/></svg>';
 const FOLDER_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg>';
@@ -402,10 +506,11 @@ function renderAccueil() {
     $('#v-accueil').innerHTML = `<div class="home raf">${matchBlock()}${urgentBlock()}${agendaBlock('raf', 'Agenda RAF')}${last}${pinsBlock('Notes épinglées RAF')}</div>`;
     return;
   }
-  // Ordre voulu : Où je suis (étape 3), Cours, Tâches urgentes, Repas (étape 4), Agenda perso, Notes épinglées
+  // Ordre voulu : Où je suis, Cours, Tâches urgentes, Repas (étape 4), Agenda perso, Notes épinglées
+  lieuxCtx();
   const cours = coursBlock();
-  $('#v-accueil').innerHTML = `<div class="home perso${cours ? ' has-cours' : ''}">${cours}${urgentBlock()}${agendaBlock('perso', 'Agenda perso')}${pinsBlock('Notes épinglées')}
-    <p class="soon a-soon">Prochaines étapes : « Où je suis » et les repas arriveront ici.</p></div>`;
+  $('#v-accueil').innerHTML = `<div class="home perso${cours ? ' has-cours' : ''}">${locBlock()}${cours}${urgentBlock()}
+    <p class="soon a-soon">Repas du jour : ils arriveront ici à la prochaine étape.</p>${agendaBlock('perso', 'Agenda perso')}${pinsBlock('Notes épinglées')}</div>`;
 }
 
 function renderNotes() {
@@ -455,6 +560,16 @@ function renderParams() {
   const theme = `<section class="set-sec" id="set-theme"><h3>Apparence</h3>
     <div class="seg" role="group" aria-label="Thème">${[['light', 'Clair'], ['dark', 'Sombre'], ['auto', 'Automatique']].map(([k, l]) => `<button type="button" data-theme-set="${k}" aria-pressed="${SET.theme === k}">${l}</button>`).join('')}</div>
     <p class="cmeta">Automatique suit le réglage de ton téléphone ou de ton PC. Ce choix est gardé sur cet appareil.</p></section>`;
+  const L = lieuxCtx();
+  const lieux = `<section class="set-sec" id="set-lieux"><h3>Lieux</h3>
+    <p class="cmeta">Les lieux proposés dans « Où je suis ». Le lieu par défaut remplit les jours de semaine et les jours de match où tu n'as rien noté. Ce choix vaut pour le téléphone et le PC.</p>
+    <div class="set-rows">${Object.entries(L.l).map(([k, p]) => `<div class="set-row">
+      <input type="color" value="${esc(p.c)}" data-pl-color="${esc(k)}" aria-label="Couleur de ${esc(p.n)}">
+      <input class="in" value="${esc(p.n)}" data-pl-name="${esc(k)}" maxlength="40" aria-label="Nom du lieu">
+      <label class="chk"><input type="radio" name="defp" value="${esc(k)}" ${L.def === k ? 'checked' : ''}> Par défaut</label>
+      <button type="button" class="btn small${S.plDel === k ? ' danger' : ''}" data-pl-del="${esc(k)}" ${L.def === k ? 'disabled title="Choisis d\'abord un autre lieu par défaut"' : ''}>${S.plDel === k ? (L.ps.some(r => r.v.p === k) ? 'Confirmer (ses jours notés redeviennent vides)' : 'Confirmer') : 'Supprimer'}</button></div>`).join('')}
+      <form class="set-row" id="pl-add"><input type="color" value="#7C8794" id="pa-c" aria-label="Couleur du nouveau lieu"><input class="in" id="pa-n" maxlength="40" placeholder="Nouveau lieu (ex. : Toulouse)" autocomplete="off" aria-label="Nom du nouveau lieu"><button class="btn primary small" type="submit">Ajouter</button></form>
+    </div></section>`;
   const agendas = `<section class="set-sec" id="set-agendas"><h3>Agendas Google</h3>
     <p class="cmeta">Choisis où chaque agenda apparaît. « Cours » alimente seulement le bloc des cours de l'accueil perso, les semaines où tu as cours. Ce choix vaut pour le téléphone et le PC.</p>
     ${AG.cals.length ? `<div class="set-rows">${AG.cals.map(c => `<div class="set-row"><span class="nm" style="--cc:${esc(c.c || '#8A96A3')}"><i></i>${esc(nomCal(c))}${c.ro ? ' <small>· lecture seule</small>' : ''}</span>
@@ -482,7 +597,7 @@ function renderParams() {
     <p class="cmeta">${INFO.t ? `Dernière synchro réussie : ${quand(INFO.t)}.` : 'Pas encore synchronisé.'} ${n ? `${n} modification${n > 1 ? 's' : ''} en attente d'envoi.` : 'Rien en attente.'}</p>
     <p class="cmeta">Tes notes sont gardées dans ce téléphone ou ce PC et dans ton Google Sheet « QG d'Aurélien ». Sans réseau, tu peux tout lire, cocher et écrire : l'envoi se fait au retour du réseau.</p>
     <div class="set-row"><button type="button" class="btn primary small" data-sync-now>Synchroniser maintenant</button></div></section>`;
-  $('#v-parametres').innerHTML = `<div class="set">${theme}${agendas}${dossiersSec}${syncSec}</div>`;
+  $('#v-parametres').innerHTML = `<div class="set">${theme}${lieux}${agendas}${dossiersSec}${syncSec}</div>`;
 }
 
 function renderSetup() {
@@ -512,7 +627,7 @@ function render() {
     if (had) { const i = $('#q'); i.focus(); i.setSelectionRange(pos, pos); }
   }
   if (S.view === 'parametres') {
-    $('#h1').textContent = 'Paramètres'; $('#sub').textContent = 'Thème, agendas, dossiers et synchronisation';
+    $('#h1').textContent = 'Paramètres'; $('#sub').textContent = 'Thème, lieux, agendas, dossiers et synchronisation';
     if (!(document.activeElement && document.activeElement.closest && document.activeElement.closest('#v-parametres'))) renderParams();
   }
 }
@@ -592,9 +707,22 @@ document.addEventListener('click', e => {
     }
     return;
   }
+  if (!$('#ov-place').hidden && t.closest('#ov-place')) { if (t === $('#ov-place') || t.closest('#pl-cancel')) fermerPlace(); return; }
+  const dy = t.closest('[data-day]'); if (dy) { openPlace(dy.dataset.day); return; }
+  const ag = t.closest('[data-ag]'); if (ag) { S.ag = ag.dataset.ag; renderAgenda(); return; }
+  const mo = t.closest('[data-mo]');
+  if (mo) { const v = +mo.dataset.mo; if (!v) S.month = auj().slice(0, 7); else { const d = jourDe(S.month + '-01'); d.setMonth(d.getMonth() + v); S.month = iso(d).slice(0, 7); } renderAgenda(); return; }
+  const gt = t.closest('[data-goto]'); if (gt) { S.ag = gt.dataset.goto; S.month = auj().slice(0, 7); if (S.view === 'agenda') { e.preventDefault(); render(); } return; }
+  const pd = t.closest('[data-pl-del]');
+  if (pd) {
+    const k = pd.dataset.plDel, L = regLieux(); if (k === L.def || !L.l[k]) return;
+    if (S.plDel !== k) { S.plDel = k; renderParams(); return; }
+    const l = JSON.parse(JSON.stringify(L.l)), nm = l[k].n; delete l[k];
+    garderLieux(l, L.def); S.plDel = null; renderParams(); toast(`Lieu « ${nm} » supprimé`); return;
+  }
   const ev = t.closest('[data-ev]'); if (ev) { openEv(EVX[ev.dataset.ev]); return; }
   const wk = t.closest('[data-wk]'); if (wk) { const v = +wk.dataset.wk; S.week = v === 0 ? lundiDe(auj()) : addDays(S.week, 7 * v); renderAgenda(); return; }
-  if (t.closest('[data-wk-now]')) { S.week = lundiDe(auj()); if (S.view === 'agenda') { e.preventDefault(); render(); } return; }
+  if (t.closest('[data-wk-now]')) { S.week = lundiDe(auj()); S.ag = 'semaine'; if (S.view === 'agenda') { e.preventDefault(); render(); } return; }
   const cd = t.closest('[data-cday]'); if (cd) { S.cday = cd.dataset.cday; renderAccueil(); return; }
   if (t.closest('label.ck')) return;
   const op = t.closest('[data-open]'); if (op) { openEditor(op.dataset.open); return; }
@@ -645,7 +773,7 @@ document.addEventListener('click', e => {
   }
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { if (!$('#ov-ev').hidden) fermerEv(); else if (!$('#ov-editor').hidden) closeEditor(); else $('#ov-add').hidden = true; }
+  if (e.key === 'Escape') { if (!$('#ov-place').hidden) fermerPlace(); else if (!$('#ov-ev').hidden) fermerEv(); else if (!$('#ov-editor').hidden) closeEditor(); else $('#ov-add').hidden = true; }
   if (e.key === 'Enter' && e.target.matches('[data-open]')) openEditor(e.target.dataset.open);
 });
 document.addEventListener('change', e => {
@@ -664,6 +792,13 @@ document.addEventListener('change', e => {
     const v = Object.assign({}, regAgendas(), { [c.id]: t.value });
     enregistrer('reglages', { id: 'agendas', v }); renderParams(); toast(`${nomCal(c)} : ${ESPACES[t.value]}`); return;
   }
+  if (t.matches('[data-pl-color]') || t.name === 'defp') {
+    const L = regLieux(), l = JSON.parse(JSON.stringify(L.l));
+    if (t.name === 'defp') { if (!l[t.value]) return; garderLieux(l, t.value); S.plDel = null; renderParams(); toast(`Lieu par défaut : ${l[t.value].n}`); return; }
+    const k = t.dataset.plColor; if (!l[k]) return; l[k].c = t.value; garderLieux(l, L.def); renderParams(); return;
+  }
+  if (t.matches('[data-pl-name]')) { renderParams(); return; }
+  if (t.id === 'pl-d') { const f = $('#pl-e'); if (t.value && (!f.value || f.value < t.value)) f.value = t.value; return; }
   if (t.id === 'ev-all') { majHeures(); return; }
   if (t.id === 'ev-start') { const s = t.value, f = $('#ev-end').value; if (s && (!f || f <= s)) { const [h, m] = s.split(':').map(Number); $('#ev-end').value = `${pad(Math.min(23, h + 1))}:${pad(h >= 23 ? 59 : m)}`; } return; }
 });
@@ -671,6 +806,10 @@ document.addEventListener('input', e => {
   const t = e.target, n = note();
   if (t.id === 'q') { S.q = t.value; renderNotes(); const i = $('#q'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); return; }
   if (t.matches('[data-f-name]')) { const f = dossier(t.dataset.fName); if (f && t.value.trim()) { f.n = t.value.trim(); enregistrer('dossiers', f); } return; }
+  if (t.matches('[data-pl-name]')) {
+    const L = regLieux(), l = JSON.parse(JSON.stringify(L.l)), k = t.dataset.plName;
+    if (l[k] && t.value.trim()) { l[k].n = t.value.trim(); garderLieux(l, L.def); } return;
+  }
   if (!n) return;
   if (t.id === 'ed-title') { n.title = t.value; touch(n); return; }
   if (t.matches('[data-ed-text]')) { n.items[+t.dataset.edText].t = t.value; touch(n); return; }
@@ -684,6 +823,18 @@ document.addEventListener('submit', e => {
   e.preventDefault();
   const id = e.target.id;
   if (id === 'ev-form') { envoyerEv(EVF.edit ? 'modif' : 'ajout'); return; }
+  if (id === 'pl-form') {
+    const d = $('#pl-d').value, en = $('#pl-e').value, er = $('#pl-err'), c = document.querySelector('input[name="pl"]:checked');
+    const msg = !d || !en ? 'Choisis les deux dates.' : en < d ? 'La date de fin doit être après la date de début.' : ecart(d, en) > 366 ? 'Une période d\'un an au plus.' : !c ? 'Choisis un lieu ou « Libre ».' : '';
+    if (msg) { er.textContent = msg; er.hidden = false; return; }
+    enregistrerPeriode(c.value, d, en); fermerPlace(); render();
+    toast(`${c.value === 'libre' ? 'Libre' : regLieux().l[c.value].n} : ${fmtCourt(d)}${en !== d ? ' au ' + fmtCourt(en) : ''}`); return;
+  }
+  if (id === 'pl-add') {
+    const nm = $('#pa-n').value.trim(); if (!nm) return;
+    const L = regLieux(), l = JSON.parse(JSON.stringify(L.l)); l[idNouveau('l')] = { n: nm, c: $('#pa-c').value };
+    garderLieux(l, L.def); renderParams(); toast(`Lieu « ${nm} » ajouté`); return;
+  }
   if (id === 'add-item') {
     const i = $('#new-item'), v = i.value.trim(); if (!v) return; const n = note();
     const fd = n.items.findIndex(x => x.ok); n.items.splice(fd < 0 ? n.items.length : fd, 0, { t: v }); touch(n); renderEditor(true); return;

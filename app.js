@@ -682,7 +682,7 @@ async function envoyerEv(op) {
 }
 
 // ---------- état de l'écran
-const S = { mode: LS.get('mode', 'perso') === 'raf' ? 'raf' : 'perso', view: 'accueil', nt: 'taches', folder: 'all', q: '', open: null, delArm: false, fDel: null, week: lundiDe(auj()), cday: null, ag: 'semaine', month: auj().slice(0, 7), plDel: null, rweek: lundiDe(auj()), mDel: null, mt: 'jow', mimg: null, mphoto: null, mjow: null, mEnvoi: false, photoKey: null };
+const S = { mode: LS.get('mode', 'perso') === 'raf' ? 'raf' : 'perso', view: 'accueil', nt: 'tout', folder: 'all', q: '', open: null, delArm: false, fDel: null, week: lundiDe(auj()), cday: null, ag: 'semaine', month: auj().slice(0, 7), plDel: null, rweek: lundiDe(auj()), mDel: null, mt: 'jow', mimg: null, mphoto: null, mjow: null, mEnvoi: false, photoKey: null };
 const PIN = '<svg viewBox="0 0 24 24" fill="currentColor" aria-label="Épinglée"><path d="M16 3H8v2l1 1v5l-3 3v2h5v6l1 1 1-1v-6h5v-2l-3-3V6l1-1z"/></svg>';
 const FLAG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 21V4h11l-1.5 4L16 12H7v9z"/></svg>';
 const FOLDER_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg>';
@@ -692,9 +692,10 @@ function cardHTML(n, showFolder) {
   let body = '';
   if (n.type === 'list') {
     const items = n.items || [];
-    const open = items.map((it, i) => ({ it, i })).filter(o => !o.it.ok).sort((a, b) => (b.it.urg ? 1 : 0) - (a.it.urg ? 1 : 0));
+    // Aperçu seulement : on coche une tâche dans sa liste ouverte, jamais sur la carte (toucher la carte ouvre la liste).
+    const open = items.map((it, i) => ({ it, i })).filter(o => !o.it.ok);
     const done = items.length - open.length;
-    body = `<ul class="cl">${open.slice(0, 7).map(o => `<li><label class="ck"><input type="checkbox" data-card="${n.id}" data-idx="${o.i}"><span class="${o.it.urg ? 'u' : ''}">${esc(o.it.t)}</span>${o.it.urg ? `<span class="flag-i" title="Urgente">${FLAG}</span>` : ''}</label></li>`).join('')}</ul>`
+    body = `<ul class="cl">${open.slice(0, 7).map(o => `<li><span class="ck"><i class="dot" aria-hidden="true"></i><span class="${o.it.urg ? 'u' : ''}">${esc(o.it.t)}</span>${o.it.urg ? `<span class="flag-i" title="Urgente">${FLAG}</span>` : ''}</span></li>`).join('')}</ul>`
       + (open.length > 7 ? `<p class="more">+ ${open.length - 7} autres</p>` : '')
       + (done ? `<p class="more">${done} terminée${done > 1 ? 's' : ''}</p>` : '')
       + (!items.length ? '<p class="more">Liste vide</p>' : '');
@@ -728,8 +729,8 @@ function renderAccueil() {
 }
 
 function renderNotes() {
-  const type = S.nt === 'taches' ? 'list' : 'text';
-  const mine = notesEspace(), mineT = mine.filter(n => n.type === type);
+  const tout = S.nt === 'tout', type = S.nt === 'taches' ? 'list' : 'text';
+  const mine = notesEspace(), mineT = tout ? mine.slice().sort((a, b) => (b.maj || 0) - (a.maj || 0)) : mine.filter(n => n.type === type);
   const fs = dossiers();
   const cnt = id => { const ids = [id, ...fs.filter(f => f.p === id).map(f => f.id)]; return mineT.filter(n => ids.includes(n.f)).length; };
   const tops = fs.filter(f => !f.p && f.m === S.mode);
@@ -746,7 +747,7 @@ function renderNotes() {
     list = mineT.filter(n => (n.title + ' ' + (n.items || []).map(i => i.t).join(' ') + ' ' + texteDe(n.html)).toLowerCase().includes(q));
     head = `<div class="crumb"><h2>Recherche « ${esc(S.q)} » · ${list.length} résultat${list.length > 1 ? 's' : ''}</h2></div>`;
   } else if (S.folder === 'all') {
-    list = mineT; head = `<div class="crumb"><h2>${S.nt === 'taches' ? 'Toutes les listes de tâches' : 'Toutes les notes'}</h2></div>`;
+    list = mineT; head = `<div class="crumb"><h2>${tout ? 'Toutes les listes et notes' : S.nt === 'taches' ? 'Toutes les listes de tâches' : 'Toutes les notes'}</h2></div>`;
   } else {
     const f = dossier(S.folder); list = mineT.filter(n => n.f === S.folder);
     const parent = f.p && dossier(f.p);
@@ -756,16 +757,16 @@ function renderNotes() {
   }
   const pin = list.filter(n => n.pin), rest = list.filter(n => !n.pin), showF = S.folder === 'all' || !!q;
   let grid;
-  if (!list.length) grid = `<div class="empty-state"><strong>${q ? 'Rien trouvé' : 'Rien ici pour l\'instant'}</strong>${q ? 'Essaie un autre mot.' : `Touche « + ${S.nt === 'taches' ? 'Liste de tâches' : 'Note'} » pour en créer une${S.folder !== 'all' ? ' dans ce dossier' : ''}.`}</div>`;
+  if (!list.length) grid = `<div class="empty-state"><strong>${q ? 'Rien trouvé' : 'Rien ici pour l\'instant'}</strong>${q ? 'Essaie un autre mot.' : `Touche ${tout ? '« + Liste » ou « + Note »' : `« + ${S.nt === 'taches' ? 'Liste de tâches' : 'Note'} »`} pour en créer une${S.folder !== 'all' ? ' dans ce dossier' : ''}.`}</div>`;
   else if (pin.length && rest.length) grid = `<h2>Épinglées à l'accueil</h2><div class="grid">${pin.map(n => cardHTML(n, showF)).join('')}</div><h2>Autres</h2><div class="grid">${rest.map(n => cardHTML(n, showF)).join('')}</div>`;
   else grid = `<div class="grid">${list.map(n => cardHTML(n, showF)).join('')}</div>`;
   const nT = mine.filter(n => n.type === 'list').length, nN = mine.filter(n => n.type === 'text').length;
   $('#v-notes').innerHTML = `<div class="notes">
     <div class="folders" role="group" aria-label="Dossiers">${fl}</div>
     <div class="notes-main">
-      <div class="nbar"><div class="seg" role="group" aria-label="Type"><button type="button" data-nt="taches" aria-pressed="${S.nt === 'taches'}">Tâches <small>${nT}</small></button><button type="button" data-nt="notes" aria-pressed="${S.nt === 'notes'}">Notes <small>${nN}</small></button></div>
-        <button class="btn primary" type="button" data-new="${type}">+ ${S.nt === 'taches' ? 'Liste de tâches' : 'Note'}</button></div>
-      <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="Chercher dans les ${S.nt === 'taches' ? 'tâches' : 'notes'} ${S.mode === 'raf' ? 'RAF' : 'perso'}" value="${esc(S.q)}" autocomplete="off"></label>
+      <div class="nbar"><div class="seg" role="group" aria-label="Type"><button type="button" data-nt="tout" aria-pressed="${tout}">Tout <small>${nT + nN}</small></button><button type="button" data-nt="taches" aria-pressed="${S.nt === 'taches'}">Tâches <small>${nT}</small></button><button type="button" data-nt="notes" aria-pressed="${S.nt === 'notes'}">Notes <small>${nN}</small></button></div>
+        ${tout ? '<span class="nbtns"><button class="btn primary" type="button" data-new="list">+ Liste</button><button class="btn primary" type="button" data-new="text">+ Note</button></span>' : `<button class="btn primary" type="button" data-new="${type}">+ ${S.nt === 'taches' ? 'Liste de tâches' : 'Note'}</button>`}</div>
+      <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="Chercher dans les ${tout ? 'notes et tâches' : S.nt === 'taches' ? 'tâches' : 'notes'} ${S.mode === 'raf' ? 'RAF' : 'perso'}" value="${esc(S.q)}" autocomplete="off"></label>
       ${head}${subs}${grid}
     </div></div>`;
 }
@@ -824,6 +825,7 @@ function renderSetup() {
 const VIEWS = ['accueil', 'agenda', 'repas', 'notes', 'parametres'];
 function render() {
   document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === S.mode));
+  document.documentElement.setAttribute('data-sp', S.mode);
   const setup = !CLE;
   $('#v-setup').hidden = !setup;
   VIEWS.forEach(v => { $('#v-' + v).hidden = setup || S.view !== v; });
@@ -849,6 +851,7 @@ function render() {
 }
 // Après une synchro : on redessine sans déranger ce qui est en cours de saisie.
 function rafraichir() {
+  purgerTerminees();
   const a = document.activeElement;
   if (a && a.closest && (a.closest('#v-parametres') || a.id === 'q')) { renderSync(); return; }
   render();
@@ -858,6 +861,108 @@ function rafraichir() {
 // ---------- éditeur de note ou de liste
 const note = () => (S.open ? DB.notes[S.open] : null);
 const touch = n => enregistrer('notes', n);
+const GRIP = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
+
+// Une tâche cochée garde l'heure où elle l'a été : au bout de 7 jours elle disparaît de sa liste.
+const SEPT_JOURS = 7 * 86400000;
+function cocher(it, ok) { if (!it) return; it.ok = ok; if (ok) it.okT = Date.now(); else delete it.okT; }
+function purgerTerminees() {
+  const now = Date.now();
+  Object.values(DB.notes).forEach(n => {
+    if (n.suppr || n._neuf || n.type !== 'list' || !Array.isArray(n.items) || n.id === S.open) return;
+    let change = false;
+    // Déjà cochée avant cette version (sans heure) : le compte des 7 jours démarre maintenant.
+    n.items.forEach(it => { if (it.ok && !it.okT) { it.okT = now; change = true; } });
+    const garde = n.items.filter(it => !(it.ok && now - it.okT >= SEPT_JOURS));
+    if (garde.length !== n.items.length) { n.items = garde; change = true; }
+    if (change) enregistrer('notes', n);
+  });
+}
+
+// Classer les tâches : appui sur la poignée, on fait glisser la ligne, l'ordre est gardé au lâcher.
+let DRAG = null;
+document.addEventListener('pointerdown', e => {
+  const g = e.target.closest && e.target.closest('[data-grip]'); if (!g) return;
+  const li = g.closest('li'), ul = li && li.parentNode, n = note(); if (!li || !n) return;
+  e.preventDefault();
+  DRAG = { li, ul, n, id: e.pointerId, y: e.clientY };
+  li.classList.add('drag'); ul.classList.add('dragging');
+  try { g.setPointerCapture(e.pointerId); } catch (err) { }
+});
+document.addEventListener('pointermove', e => {
+  if (!DRAG || e.pointerId !== DRAG.id) return;
+  e.preventDefault();
+  const { li, ul } = DRAG, y = e.clientY;
+  const autres = [...ul.children].filter(x => x !== li);
+  const apres = autres.find(x => { const r = x.getBoundingClientRect(); return y < r.top + r.height / 2; });
+  if (apres) { if (li.nextSibling !== apres) ul.insertBefore(li, apres); } else if (ul.lastChild !== li) ul.appendChild(li);
+  // Faire défiler la fenêtre de la liste quand on approche du bord.
+  const box = $('#ed-body'); if (box) { const r = box.getBoundingClientRect(); if (y < r.top + 40) box.scrollTop -= 12; else if (y > r.bottom - 40) box.scrollTop += 12; }
+}, { passive: false });
+function finDrag(e) {
+  if (!DRAG || (e && e.pointerId !== DRAG.id)) return;
+  const { li, ul, n } = DRAG; DRAG = null;
+  li.classList.remove('drag'); ul.classList.remove('dragging');
+  const ordre = [...ul.querySelectorAll('[data-row]')].map(x => +x.dataset.row);
+  const avant = n.items.map((it, i) => i).filter(i => !n.items[i].ok);
+  if (ordre.join() === avant.join()) return;
+  n.items = [...ordre.map(i => n.items[i]), ...n.items.filter(it => it.ok)];
+  touch(n); renderEditor();
+}
+document.addEventListener('pointerup', finDrag);
+document.addEventListener('pointercancel', finDrag);
+
+// Glisser le doigt à gauche ou à droite dans l'Agenda et les Repas : semaine (ou mois) suivante ou précédente.
+let SW = null;
+document.addEventListener('touchstart', e => {
+  if (e.touches.length !== 1) { SW = null; return; }
+  const z = e.target.closest && e.target.closest('#v-agenda, #v-repas');
+  if (!z || e.target.closest('input, textarea, select, [contenteditable], .seg, .ctabs')) { SW = null; return; }
+  SW = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), z: z.id };
+}, { passive: true });
+document.addEventListener('touchend', e => {
+  if (!SW) return;
+  const s = SW; SW = null;
+  const p = e.changedTouches[0], dx = p.clientX - s.x, dy = p.clientY - s.y;
+  if (Date.now() - s.t > 800 || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+  const v = dx < 0 ? 1 : -1;
+  if (s.z === 'v-repas') { S.rweek = addDays(S.rweek, 7 * v); renderRepas(); hydrater(); }
+  else if (S.ag === 'mois') { const d = jourDe(S.month + '-01'); d.setMonth(d.getMonth() + v); S.month = iso(d).slice(0, 7); renderAgenda(); }
+  else { S.week = addDays(S.week, 7 * v); renderAgenda(); }
+}, { passive: true });
+
+// Puces automatiques : « - » (ou « * ») suivi d'une espace en début de ligne devient une puce.
+function pucesAuto(rt) {
+  const s = getSelection(); if (!s.rangeCount) return false;
+  const r = s.getRangeAt(0); if (!r.collapsed) return false;
+  const node = r.startContainer; if (node.nodeType !== 3 || !rt.contains(node)) return false;
+  if (!/^[-*•][\s ]$/.test(node.textContent.slice(0, r.startOffset))) return false;
+  let bloc = node.parentNode; while (bloc !== rt && !/^(P|DIV|LI)$/.test(bloc.tagName)) bloc = bloc.parentNode;
+  if (bloc.tagName === 'LI') return false;
+  const w = document.createTreeWalker(bloc, NodeFilter.SHOW_TEXT);
+  let premier = w.nextNode(); while (premier && premier !== node && !premier.textContent.trim()) premier = w.nextNode();
+  if (premier !== node) return false;
+  node.textContent = node.textContent.slice(r.startOffset);
+  // La ligne devient un élément de liste (accolé à la liste juste au-dessus s'il y en a une).
+  const li = document.createElement('li');
+  if (bloc === rt) { // texte posé directement dans la note, sans paragraphe
+    let debut = node; while (debut.previousSibling && debut.previousSibling.nodeName !== 'BR' && !/^(P|DIV|UL|OL)$/.test(debut.previousSibling.nodeName)) debut = debut.previousSibling;
+    const ref = debut.previousSibling; let x = debut;
+    while (x && x.nodeName !== 'BR' && !/^(P|DIV|UL|OL)$/.test(x.nodeName)) { const suiv = x.nextSibling; li.appendChild(x); x = suiv; }
+    if (x && x.nodeName === 'BR') x.remove();
+    const ul = document.createElement('ul'); ul.appendChild(li); rt.insertBefore(ul, ref ? ref.nextSibling : rt.firstChild);
+  } else {
+    while (bloc.firstChild) li.appendChild(bloc.firstChild);
+    const prec = bloc.previousElementSibling;
+    if (prec && prec.tagName === 'UL') { prec.appendChild(li); bloc.remove(); }
+    else { const ul = document.createElement('ul'); ul.appendChild(li); bloc.replaceWith(ul); }
+  }
+  if (!li.textContent) { li.innerHTML = '<br>'; }
+  const nr = document.createRange();
+  if (node.isConnected && node.textContent) nr.setStart(node, 0); else nr.setStart(li, 0);
+  nr.collapse(true); s.removeAllRanges(); s.addRange(nr);
+  return true;
+}
 function openEditor(id) { if (!DB.notes[id]) return; S.open = id; S.delArm = false; renderEditor(); $('#ov-editor').hidden = false; }
 function renderEditor(keepFocus) {
   const n = note(); if (!n) return;
@@ -873,9 +978,9 @@ function renderEditor(keepFocus) {
   const body = $('#ed-body');
   if (n.type === 'list') {
     const rows = (n.items || []).map((it, i) => ({ it, i })), open = rows.filter(o => !o.it.ok), done = rows.filter(o => o.it.ok);
-    const row = o => `<li class="${o.it.ok ? 'ok' : ''}${o.it.urg && !o.it.ok ? ' urgent' : ''}"><input type="checkbox" ${o.it.ok ? 'checked' : ''} data-ed-idx="${o.i}" aria-label="Fait : ${esc(o.it.t)}"><input class="it" value="${esc(o.it.t)}" data-ed-text="${o.i}" aria-label="Tâche">${o.it.ok ? '' : `<button type="button" class="fl" data-ed-urg="${o.i}" aria-pressed="${!!o.it.urg}" aria-label="Urgente" title="${o.it.urg ? 'Retirer l\'urgence' : 'Marquer urgente (visible à l\'accueil)'}">${FLAG}</button>`}<button type="button" class="x" data-ed-del="${o.i}" aria-label="Retirer la tâche">×</button></li>`;
+    const row = o => `<li class="${o.it.ok ? 'ok' : ''}${o.it.urg && !o.it.ok ? ' urgent' : ''}" data-row="${o.i}">${o.it.ok ? '' : `<span class="grip" data-grip="${o.i}" aria-hidden="true" title="Glisser pour classer">${GRIP}</span>`}<input type="checkbox" ${o.it.ok ? 'checked' : ''} data-ed-idx="${o.i}" aria-label="Fait : ${esc(o.it.t)}"><input class="it" value="${esc(o.it.t)}" data-ed-text="${o.i}" aria-label="Tâche">${o.it.ok ? '' : `<button type="button" class="fl" data-ed-urg="${o.i}" aria-pressed="${!!o.it.urg}" aria-label="Urgente" title="${o.it.urg ? 'Retirer l\'urgence' : 'Marquer urgente (visible à l\'accueil)'}">${FLAG}</button>`}<button type="button" class="x" data-ed-del="${o.i}" aria-label="Retirer la tâche">×</button></li>`;
     const wasOpen = body.querySelector('details') && body.querySelector('details').open;
-    body.innerHTML = `<p class="ed-hint">Le drapeau rend une tâche urgente : elle remonte sur l'accueil.</p><ul class="ed-list">${open.map(row).join('')}</ul>
+    body.innerHTML = `<p class="ed-hint">Le drapeau rend une tâche urgente : elle remonte sur l'accueil. La poignée ⋮⋮ fait glisser une tâche pour la classer. Une tâche terminée disparaît seule au bout de 7 jours.</p><ul class="ed-list" id="ed-open">${open.map(row).join('')}</ul>
       <form class="add-item" id="add-item"><span>+</span><input id="new-item" placeholder="Nouvelle tâche" autocomplete="off" aria-label="Nouvelle tâche" enterkeyhint="enter"></form>
       ${done.length ? `<details class="done"${wasOpen ? ' open' : ''}><summary>${done.length} terminée${done.length > 1 ? 's' : ''}</summary><ul class="ed-list">${done.map(row).join('')}</ul></details>` : ''}`;
     if (keepFocus === true) $('#new-item').focus();
@@ -897,7 +1002,7 @@ function newNote(type) {
   const f = S.view === 'notes' && S.folder !== 'all' ? S.folder : ((fs.find(x => !x.p && x.m === S.mode) || {}).id || '');
   const n = { id: idNouveau('n'), title: '', f, type, color: 'default', pin: false, maj: Date.now(), items: [], html: '', _neuf: true };
   DB.notes[n.id] = n; // gardée seulement à la première saisie
-  $('#ov-add').hidden = true; S.nt = type === 'list' ? 'taches' : 'notes';
+  $('#ov-add').hidden = true; if (S.nt !== 'tout') S.nt = type === 'list' ? 'taches' : 'notes';
   openEditor(n.id); setTimeout(() => $('#ed-title').focus(), 30);
 }
 function goSection(id) {
@@ -961,7 +1066,7 @@ document.addEventListener('click', e => {
   if (t.closest('label.ck')) return;
   const op = t.closest('[data-open]'); if (op) { openEditor(op.dataset.open); return; }
   const gs = t.closest('[data-goset]'); if (gs) { goSection(gs.dataset.goset); return; }
-  const gf = t.closest('[data-gofolder]'); if (gf) { S.folder = gf.dataset.gofolder; S.nt = 'notes'; return; }
+  const gf = t.closest('[data-gofolder]'); if (gf) { S.folder = gf.dataset.gofolder; S.nt = 'tout'; return; }
   const nt = t.closest('[data-nt]'); if (nt) { S.nt = nt.dataset.nt; S.q = ''; renderNotes(); return; }
   const fo = t.closest('[data-folder]'); if (fo) { S.folder = fo.dataset.folder; S.q = ''; renderNotes(); return; }
   const th = t.closest('[data-theme-set]');
@@ -993,7 +1098,7 @@ document.addEventListener('click', e => {
     if (t.closest('#ed-dup')) {
       if (n._neuf) return;
       const c = JSON.parse(JSON.stringify(n)); c.id = idNouveau('n'); c.title = (n.title || 'Sans titre') + ' (copie)'; c.pin = false;
-      if (c.items) c.items.forEach(i => { i.ok = false; i.urg = false; });
+      if (c.items) c.items.forEach(i => { i.ok = false; i.urg = false; delete i.okT; });
       enregistrer('notes', c);
       openEditor(c.id); toast(n.type === 'list' ? 'Copie créée, cases décochées' : 'Copie créée : renomme-la (ex. Déroulé REIMS)'); setTimeout(() => $('#ed-title').select(), 30); return;
     }
@@ -1014,10 +1119,10 @@ document.addEventListener('change', e => {
   const t = e.target;
   if (t.matches('[data-card]')) {
     const n = DB.notes[t.dataset.card], it = n && n.items[+t.dataset.idx]; if (!it) return;
-    it.ok = t.checked; enregistrer('notes', n);
+    cocher(it, t.checked); enregistrer('notes', n);
     setTimeout(() => { render(); toast(`Fait : ${it.t}`); }, 180); return;
   }
-  if (t.matches('[data-ed-idx]')) { const n = note(); n.items[+t.dataset.edIdx].ok = t.checked; touch(n); renderEditor(); return; }
+  if (t.matches('[data-ed-idx]')) { const n = note(); cocher(n.items[+t.dataset.edIdx], t.checked); touch(n); renderEditor(); return; }
   if (t.id === 'ed-folder') { const n = note(); n.f = t.value; touch(n); toast(`Rangée dans ${dossierNom(t.value)}`); return; }
   if (t.matches('[data-f-parent]')) { const f = dossier(t.dataset.fParent); if (t.value) f.p = t.value; else delete f.p; enregistrer('dossiers', f); renderParams(); return; }
   if (t.matches('[data-f-name]')) { renderParams(); return; }
@@ -1064,7 +1169,12 @@ document.addEventListener('input', e => {
   if (!n) return;
   if (t.id === 'ed-title') { n.title = t.value; touch(n); return; }
   if (t.matches('[data-ed-text]')) { n.items[+t.dataset.edText].t = t.value; touch(n); return; }
-  if (t.id === 'rt') { n.html = propre(t.innerHTML); touch(n); }
+  if (t.id === 'rt') { if (!e.isComposing) pucesAuto(t); n.html = propre(t.innerHTML); touch(n); }
+});
+// Clavier du téléphone : la saisie peut se terminer après l'espace, on revérifie à ce moment-là.
+document.addEventListener('compositionend', e => {
+  const n = note(); if (!n || e.target.id !== 'rt') return;
+  if (pucesAuto(e.target)) { n.html = propre(e.target.innerHTML); touch(n); }
 });
 // Coller du texte dans une note : seulement le texte, sans la mise en forme du site d'origine.
 document.addEventListener('paste', e => {
@@ -1111,4 +1221,4 @@ window.addEventListener('online', () => { ST.horsLigne = false; AGS.horsLigne = 
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { synchroniser(); agendaAJour(); } });
 setInterval(() => { if (document.visibilityState === 'visible') { synchroniser(); agendaAJour(); } }, 60000);
 if ('serviceWorker' in navigator && !LOCAL) navigator.serviceWorker.register('sw.js').catch(() => { });
-renderSync(); route(); synchroniser(); agendaAJour();
+purgerTerminees(); renderSync(); route(); synchroniser(); agendaAJour();

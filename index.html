@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..700&family=Figtree:wght@400;500;600;700&display=swap">
-<script>try{var t=JSON.parse(localStorage.getItem('qg-theme'))||'light';if(t==='auto')document.documentElement.removeAttribute('data-theme');else document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<script>try{var t=JSON.parse(localStorage.getItem('qg-theme'))||'light';if(t==='auto')document.documentElement.removeAttribute('data-theme');else document.documentElement.setAttribute('data-theme',t);if(JSON.parse(localStorage.getItem('qg-mode'))==='raf')document.documentElement.setAttribute('data-sp','raf')}catch(e){}</script>
 <style>
 :root{
   --bg:#EDF0F3; --surface:#FFFFFF; --surface-2:#F5F7F9; --ink:#15202B; --muted:#5A6672; --line:#D7DDE3;
@@ -37,6 +37,10 @@
   --ok:#55C08A; --warn:#E89A45; --danger:#E06A60; --scrim:rgba(0,0,0,.6);
   --n-default:#171D24; --n-grey:#28313B; --n-blue:#1D3245; --n-pink:#472826; --n-yellow:#3F3716; --n-green:#1E3829; --n-lilac:#312848;
   color-scheme:dark}
+/* Espace RAF : fond légèrement rosé, boutons principaux et onglet actif en rouge RAF */
+:root[data-sp="raf"]{--bg:#F6EEED;--accent:#C33E37;--accent-ink:#FFFFFF}
+@media (prefers-color-scheme: dark){:root[data-sp="raf"]:not([data-theme="light"]){--bg:#171011;--accent:#E2665E;--accent-ink:#1A0908}}
+:root[data-theme="dark"][data-sp="raf"]{--bg:#171011;--accent:#E2665E;--accent-ink:#1A0908}
 
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45;-webkit-text-size-adjust:100%}
@@ -415,6 +419,18 @@ button.ev:hover .t,button.ev.all:hover{text-decoration:underline}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(92px + env(safe-area-inset-bottom,0px));z-index:60;background:var(--accent);color:var(--accent-ink);padding:10px 16px;border-radius:12px;font-weight:600;font-size:14px;max-width:calc(100% - 32px);box-shadow:0 6px 20px rgba(0,0,0,.2)}
 @media (min-width:900px){.toast{bottom:28px}}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(16px);opacity:.6}}}
+.cl .dot{width:13px;height:13px;margin:3px 1px 0;border:1.5px solid color-mix(in srgb,var(--ink) 40%,transparent);border-radius:50%;flex-shrink:0}
+.cl .ck{display:flex;gap:9px;align-items:flex-start;font-size:14px;overflow-wrap:anywhere}
+.nbtns{display:inline-flex;gap:8px}
+.ed-list .grip{width:22px;height:32px;display:grid;place-items:center;color:var(--muted);opacity:.55;cursor:grab;touch-action:none;flex-shrink:0;user-select:none;-webkit-user-select:none}
+.ed-list .grip svg{width:16px;height:16px}
+.ed-list .grip:hover{opacity:1}
+.ed-list.dragging{user-select:none;-webkit-user-select:none}
+.ed-list li.drag{background:var(--surface-2);box-shadow:0 4px 14px rgba(0,0,0,.14);border-radius:8px;position:relative;z-index:2}
+.ed-list li.drag .grip{cursor:grabbing;opacity:1}
+.ed-list li.ok{padding-left:28px}
+.rt ul,.preview ul{margin:2px 0;padding-left:22px}
+.rt li,.preview li{margin:1px 0}
 </style>
 </head>
 <body>

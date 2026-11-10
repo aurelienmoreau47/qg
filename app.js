@@ -509,7 +509,35 @@ function repasHTML(m, k) {
   return `<div class="meal"><button type="button" class="thumb" data-photo="${esc(k)}" style="--th:${fondVignette(m.title)}" aria-label="${lbl}" title="${lbl}">${FORK}${pic}${m.photo ? '' : `<span class="cam">${CAM}</span>`}</button>
     <div class="mi"><strong>${esc(m.title)}</strong>${m.mm ? `<span class="mm">${esc(m.mm)}</span>` : ''}
       ${lien || m.img ? `<span class="acts">${lien ? `<a href="${esc(m.url)}" target="_blank" rel="noopener">Ouvrir dans Jow ↗</a>` : ''}${m.img ? `<button type="button" data-view-img="${esc(k)}">Voir la capture</button>` : ''}</span>` : ''}</div>
-    <button type="button" class="icon-btn del${S.mDel === k ? ' armed' : ''}" data-meal-del="${esc(k)}" aria-label="Retirer ce repas" title="Retirer ce repas">${S.mDel === k ? 'Retirer ?' : '×'}</button></div>`;
+    <span class="mbtns">${S.mDel === k ? '' : `<button type="button" class="icon-btn" data-meal-move="${esc(k)}" aria-label="Déplacer ce repas" title="Déplacer ce repas">${MOVE}</button>`}<button type="button" class="icon-btn del${S.mDel === k ? ' armed' : ''}" data-meal-del="${esc(k)}" aria-label="Retirer ce repas" title="Retirer ce repas">${S.mDel === k ? 'Retirer ?' : '×'}</button></span></div>`;
+}
+const MOVE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4 3 8l4 4"/><path d="M3 8h13"/><path d="m17 20 4-4-4-4"/><path d="M21 16H8"/></svg>';
+
+// --- déplacer un repas : vers une case libre, ou échange avec le repas déjà en place
+function openMove(k) {
+  const m = repas(k); if (!m) return;
+  S.mv = k;
+  $('#mv-h').textContent = `Déplacer « ${m.title} »`;
+  $('#mv-d').value = m.d; $('#mv-m').value = m.mo;
+  majMove(); $('#ov-move').hidden = false;
+}
+function fermerMove() { $('#ov-move').hidden = true; S.mv = null; }
+function majMove() {
+  const to = $('#mv-d').value + '|' + $('#mv-m').value, b = repas(to), info = $('#mv-info');
+  const meme = !$('#mv-d').value || to === S.mv;
+  $('#mv-ok').disabled = meme;
+  info.textContent = !$('#mv-d').value ? 'Choisis un jour.' : meme ? 'Choisis un autre jour ou un autre moment.' : b ? `Case prise : les deux repas échangeront leur place (« ${b.title} » ira au ${fmtCourt(S.mv.split('|')[0])}, ${S.mv.split('|')[1]}).` : 'Case libre.';
+}
+function deplacerRepas() {
+  const from = S.mv, a = repas(from), d = $('#mv-d').value, mo = $('#mv-m').value === 'midi' ? 'midi' : 'soir', to = d + '|' + mo;
+  if (!a || !d || to === from) return;
+  const b = repas(to);
+  const copie = (m, k) => { const c = JSON.parse(JSON.stringify(m)); const [cd, cm] = k.split('|'); c.id = k; c.d = cd; c.mo = cm; delete c.suppr; return c; };
+  enregistrer('repas', copie(a, to));
+  if (b) enregistrer('repas', copie(b, from));
+  else { const v = DB.repas[from]; v.suppr = true; enregistrer('repas', v); }
+  fermerMove(); render();
+  toast(b ? `Échangé : ${a.title} ⇄ ${b.title}` : `${a.title} : ${fmtCourt(d)}, ${mo}`);
 }
 const caseRepas = (d, mo) => { const k = d + '|' + mo, m = repas(k); return m ? repasHTML(m, k) : `<button type="button" class="addslot" data-meal-add="${k}">+ ${MOMENTS[mo]}</button>`; };
 function repasBlock() {
@@ -1025,6 +1053,8 @@ document.addEventListener('click', e => {
     return;
   }
   if (!$('#ov-img').hidden && t.closest('#ov-img')) { if (t === $('#ov-img') || t.closest('#img-close')) $('#ov-img').hidden = true; return; }
+  if (!$('#ov-move').hidden && t.closest('#ov-move')) { if (t === $('#ov-move') || t.closest('#mv-cancel')) fermerMove(); return; }
+  const mmv = t.closest('[data-meal-move]'); if (mmv) { openMove(mmv.dataset.mealMove); return; }
   const ma = t.closest('[data-meal-add]'); if (ma) { openRepas(ma.dataset.mealAdd); return; }
   const mdl = t.closest('[data-meal-del]');
   if (mdl) {
@@ -1112,7 +1142,7 @@ document.addEventListener('click', e => {
   }
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { if (!$('#ov-img').hidden) $('#ov-img').hidden = true; else if (!$('#ov-meal').hidden) fermerRepas(); else if (!$('#ov-place').hidden) fermerPlace(); else if (!$('#ov-ev').hidden) fermerEv(); else if (!$('#ov-editor').hidden) closeEditor(); else $('#ov-add').hidden = true; }
+  if (e.key === 'Escape') { if (!$('#ov-img').hidden) $('#ov-img').hidden = true; else if (!$('#ov-move').hidden) fermerMove(); else if (!$('#ov-meal').hidden) fermerRepas(); else if (!$('#ov-place').hidden) fermerPlace(); else if (!$('#ov-ev').hidden) fermerEv(); else if (!$('#ov-editor').hidden) closeEditor(); else $('#ov-add').hidden = true; }
   if (e.key === 'Enter' && e.target.matches('[data-open]')) openEditor(e.target.dataset.open);
 });
 document.addEventListener('change', e => {
@@ -1138,6 +1168,7 @@ document.addEventListener('change', e => {
   }
   if (t.matches('[data-pl-name]')) { renderParams(); return; }
   if (t.id === 'ml-d' || t.id === 'ml-m') { majRemplace(); return; }
+  if (t.id === 'mv-d' || t.id === 'mv-m') { majMove(); return; }
   if (t.id === 'ml-file' || t.id === 'ml-photo' || t.id === 'photo-in') {
     const f = t.files && t.files[0]; if (!f) return;
     const capture = t.id === 'ml-file';
@@ -1185,6 +1216,7 @@ document.addEventListener('submit', e => {
   const id = e.target.id;
   if (id === 'ev-form') { envoyerEv(EVF.edit ? 'modif' : 'ajout'); return; }
   if (id === 'ml-form') { enregistrerRepas(); return; }
+  if (id === 'mv-form') { deplacerRepas(); return; }
   if (id === 'pl-form') {
     const d = $('#pl-d').value, en = $('#pl-e').value, er = $('#pl-err'), c = document.querySelector('input[name="pl"]:checked');
     const msg = !d || !en ? 'Choisis les deux dates.' : en < d ? 'La date de fin doit être après la date de début.' : ecart(d, en) > 366 ? 'Une période d\'un an au plus.' : !c ? 'Choisis un lieu ou « Libre ».' : '';

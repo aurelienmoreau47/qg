@@ -157,6 +157,10 @@ main{max-width:1240px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-le
 .mi .acts a,.mi .acts button{font-size:12.5px;font-weight:600;color:var(--muted);text-decoration:none;border:0;background:none;padding:0;cursor:pointer}
 .mi .acts a:hover,.mi .acts button:hover{color:var(--ink);text-decoration:underline}
 .icon-btn.del{font-size:20px;width:auto;min-width:38px;padding:0 6px}
+.meal .mbtns{display:flex;align-items:center}
+.meal .mbtns .icon-btn{width:34px}
+.meal .mbtns .icon-btn.del{min-width:34px}
+.meal .mbtns .icon-btn svg{width:18px;height:18px}
 .icon-btn.del.armed{font-size:13px;font-weight:700;color:var(--danger);background:color-mix(in srgb,var(--danger) 12%,transparent)}
 .addslot{border:1px dashed var(--line);border-radius:10px;padding:13px 12px;color:var(--muted);background:transparent;width:100%;text-align:left;font-weight:600;font-size:14px;cursor:pointer}
 .addslot:hover{border-color:var(--muted);color:var(--ink)}
@@ -557,6 +561,17 @@ button.ev:hover .t,button.ev.all:hover{text-decoration:underline}
       <img id="ml-pprev" class="prev-img" hidden alt="Aperçu de la photo du plat">
       <p class="err" id="ml-err" role="alert" hidden></p>
       <div class="acts"><button class="btn" type="button" id="ml-cancel">Annuler</button><button class="btn primary" type="submit">Ajouter</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="overlay" id="ov-move" hidden>
+  <div class="sheet small" role="dialog" aria-modal="true" aria-labelledby="mv-h">
+    <form class="add-pad form" id="mv-form" novalidate>
+      <h2 id="mv-h">Déplacer le repas</h2>
+      <div class="two"><label>Jour<input id="mv-d" type="date"></label><label>Repas<select id="mv-m"><option value="midi">Midi</option><option value="soir">Soir</option></select></label></div>
+      <p class="hint" id="mv-info"></p>
+      <div class="acts"><button class="btn" type="button" id="mv-cancel">Annuler</button><button class="btn primary" type="submit" id="mv-ok">Déplacer</button></div>
     </form>
   </div>
 </div>

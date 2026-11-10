@@ -5,6 +5,7 @@
 // Le Sheet renvoie tout : c'est comme ça que le téléphone et le PC restent pareils.
 
 const URL_SCRIPT_EN_LIGNE = 'https://script.google.com/macros/s/AKfycbzVtXadj1IIZda8jBdQt4UlrqpFwWFppuB4TWmAGOj89XU1_zofTkBwOMnq7tU1ccYScQ/exec'; // adresse /exec du script Google (voir README)
+const VERSION_APPLI = 'qg-7'; // même valeur que CACHE dans sw.js
 const LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 const URL_SCRIPT = LOCAL ? location.origin + '/exec' : URL_SCRIPT_EN_LIGNE;
 const COLLS = ['dossiers', 'notes', 'reglages', 'repas'];
@@ -839,7 +840,8 @@ function renderParams() {
   const syncSec = `<section class="set-sec" id="set-sync"><h3>Synchronisation</h3>
     <p class="cmeta">${INFO.t ? `Dernière synchro réussie : ${quand(INFO.t)}.` : 'Pas encore synchronisé.'} ${n ? `${n} modification${n > 1 ? 's' : ''} en attente d'envoi.` : 'Rien en attente.'}</p>
     <p class="cmeta">Tes notes sont gardées dans ce téléphone ou ce PC et dans ton Google Sheet « QG d'Aurélien ». Sans réseau, tu peux tout lire, cocher et écrire : l'envoi se fait au retour du réseau.</p>
-    <div class="set-row"><button type="button" class="btn primary small" data-sync-now>Synchroniser maintenant</button></div></section>`;
+    <div class="set-row"><button type="button" class="btn primary small" data-sync-now>Synchroniser maintenant</button></div>
+    <p class="cmeta">Version de l'appli : ${VERSION_APPLI}. Une nouvelle version s'installe toute seule à l'ouverture de l'appli.</p></section>`;
   $('#v-parametres').innerHTML = `<div class="set">${theme}${lieux}${agendas}${dossiersSec}${syncSec}</div>`;
 }
 
@@ -1250,7 +1252,24 @@ document.addEventListener('submit', e => {
 function route() { const h = location.hash.slice(1); S.view = VIEWS.includes(h) ? h : 'accueil'; S.mDel = null; render(); window.scrollTo(0, 0); }
 window.addEventListener('hashchange', route);
 window.addEventListener('online', () => { ST.horsLigne = false; AGS.horsLigne = false; synchroniser(); agendaAJour(); });
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { synchroniser(); agendaAJour(); } });
-setInterval(() => { if (document.visibilityState === 'visible') { synchroniser(); agendaAJour(); } }, 60000);
-if ('serviceWorker' in navigator && !LOCAL) navigator.serviceWorker.register('sw.js').catch(() => { });
+// Nouvelle version publiée : elle se télécharge en fond, puis l'appli se recharge dès qu'aucune fenêtre ni saisie n'est en cours.
+let SWREG = null, MAJ_PRETE = false;
+function calme() {
+  if ([...document.querySelectorAll('.overlay')].some(o => !o.hidden)) return false;
+  const a = document.activeElement; return !(a && a.matches && a.matches('input, textarea, select, [contenteditable]'));
+}
+function rechargerSiCalme() {
+  if (!MAJ_PRETE || document.visibilityState !== 'visible' || !calme()) return;
+  MAJ_PRETE = false; LS.set('majFaite', VERSION_APPLI); location.reload();
+}
+function chercherMaj() { if (SWREG) SWREG.update().catch(() => { }); }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { synchroniser(); agendaAJour(); chercherMaj(); rechargerSiCalme(); } });
+setInterval(() => { if (document.visibilityState === 'visible') { synchroniser(); agendaAJour(); rechargerSiCalme(); } }, 60000);
+document.addEventListener('click', () => setTimeout(rechargerSiCalme, 400));
+if ('serviceWorker' in navigator && !LOCAL) {
+  const avaitSW = !!navigator.serviceWorker.controller; // première installation : pas besoin de recharger
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(r => { SWREG = r; }).catch(() => { });
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (!avaitSW) return; MAJ_PRETE = true; rechargerSiCalme(); });
+}
 purgerTerminees(); renderSync(); route(); synchroniser(); agendaAJour();
+if (LS.get('majFaite', '')) { const v = LS.get('majFaite', ''); LS.set('majFaite', ''); setTimeout(() => toast(`Appli mise à jour (${v})`), 600); }

@@ -1,10 +1,10 @@
 // Réseau d'abord (pour recevoir les mises à jour), copie gardée en secours (pour marcher sans réseau).
-// Changer CACHE à chaque nouvelle version publiée.
+// Changer CACHE à chaque nouvelle version publiée, et VERSION_APPLI au début d'app.js (même valeur).
 // « qg-photos » (photos des repas, rangées par l'appli) et « qg-jow » (photos des recettes Jow) survivent aux mises à jour.
-const CACHE = 'qg-6';
+const CACHE = 'qg-7';
 const GARDES = [CACHE, 'qg-photos', 'qg-jow'];
 const FICHIERS = ['./', 'index.html', 'app.js', 'manifest.webmanifest', 'icone.svg', 'icone-180.png', 'icone-192.png', 'icone-512.png'];
-self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FICHIERS)).then(() => self.skipWaiting())); });
+self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FICHIERS.map(f => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => !GARDES.includes(k)).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
@@ -20,7 +20,8 @@ self.addEventListener('fetch', e => {
     return;
   }
   if (u.origin !== location.origin) return;
-  e.respondWith(fetch(e.request).then(r => {
+  // « no-cache » : le téléphone redemande toujours au site si le fichier a changé (sinon il garde l'ancien jusqu'à 10 min).
+  e.respondWith(fetch(e.request, { cache: 'no-cache' }).then(r => {
     if (r.ok) { const copie = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copie)); }
     return r;
   }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(r => r || caches.match('index.html'))));

@@ -120,11 +120,51 @@ main{max-width:1240px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-le
 .home{display:grid;gap:20px}
 .home>*{min-width:0}
 @media (min-width:1100px){
-  .home.perso{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"loc urgent" "soon agenda" "pins pins";align-items:start}
-  .home.perso.has-cours{grid-template-areas:"loc urgent" "cours cours" "soon agenda" "pins pins"}
+  .home.perso{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"loc urgent" "repas agenda" "pins pins";align-items:start}
+  .home.perso.has-cours{grid-template-areas:"loc urgent" "cours cours" "repas agenda" "pins pins"}
   .home.raf{grid-template-columns:minmax(0,400px) minmax(0,1fr);grid-template-areas:"match pins" "urgent pins" "agenda pins" "last pins";align-items:start}
-  .a-urgent{grid-area:urgent}.a-pins{grid-area:pins}.a-last{grid-area:last}.a-soon{grid-area:soon}.a-agenda{grid-area:agenda}.a-cours{grid-area:cours}.a-match{grid-area:match}.a-loc{grid-area:loc}
+  .a-urgent{grid-area:urgent}.a-pins{grid-area:pins}.a-last{grid-area:last}.a-agenda{grid-area:agenda}.a-cours{grid-area:cours}.a-match{grid-area:match}.a-loc{grid-area:loc}.a-repas{grid-area:repas}
 }
+/* Repas */
+.rhead{display:none}
+.rdays{display:flex;flex-direction:column;gap:8px}
+.rday{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:grid;gap:8px;min-width:0}
+.rday.today{border-color:var(--jaune);border-width:2px}
+.rday .dl{display:flex;align-items:baseline;gap:8px;font-weight:700}
+.rday .dl small{font-weight:600;font-size:12.5px;color:var(--muted)}
+.slot{display:flex;flex-direction:column;gap:4px;min-width:0}
+.slot .sl{font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+@media (min-width:900px){
+  .rhead{display:grid;grid-template-columns:150px minmax(0,1fr) minmax(0,1fr);gap:14px;padding:0 13px}
+  .rday{grid-template-columns:150px minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+  .rday .dl{flex-direction:column;gap:2px}
+  .rday .slot .sl{display:none}
+}
+.meal{display:grid;grid-template-columns:56px minmax(0,1fr) auto;gap:10px;align-items:center;min-width:0}
+.thumb{position:relative;width:56px;height:56px;border:0;padding:0;border-radius:10px;background:var(--th);display:grid;place-items:center;color:var(--muted);cursor:pointer}
+.thumb>.fork{width:22px;height:22px;opacity:.8}
+.thumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit}
+.thumb .cam{position:absolute;right:-5px;bottom:-5px;width:22px;height:22px;border-radius:50%;background:var(--surface);border:1px solid var(--line);display:grid;place-items:center;color:var(--ink)}
+.thumb .cam svg{width:12px;height:12px}
+.mi{display:flex;flex-direction:column;min-width:0;font-size:14px;line-height:1.3;gap:1px}
+.mi strong{overflow-wrap:anywhere}
+.mi .mm{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.mi .acts{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:3px}
+.mi .acts a,.mi .acts button{font-size:12.5px;font-weight:600;color:var(--muted);text-decoration:none;border:0;background:none;padding:0;cursor:pointer}
+.mi .acts a:hover,.mi .acts button:hover{color:var(--ink);text-decoration:underline}
+.icon-btn.del{font-size:20px;width:auto;min-width:38px;padding:0 6px}
+.icon-btn.del.armed{font-size:13px;font-weight:700;color:var(--danger);background:color-mix(in srgb,var(--danger) 12%,transparent)}
+.addslot{border:1px dashed var(--line);border-radius:10px;padding:13px 12px;color:var(--muted);background:transparent;width:100%;text-align:left;font-weight:600;font-size:14px;cursor:pointer}
+.addslot:hover{border-color:var(--muted);color:var(--ink)}
+.rtoday{display:grid;gap:10px}
+.rtoday .slot{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.jow-prev{display:grid;grid-template-columns:52px minmax(0,1fr);gap:10px;align-items:center;background:var(--surface-2);border-radius:12px;padding:10px;font-size:14px}
+.jow-prev .thumb{width:52px;height:52px;cursor:default}
+.jow-prev .mi strong{color:var(--ink)}
+.prev-img{max-height:160px;max-width:100%;border-radius:10px;object-fit:contain;justify-self:start}
+#ov-img .sheet{align-items:center;padding:14px;gap:10px}
+#ov-img img{max-width:100%;max-height:72vh;border-radius:10px;object-fit:contain}
+.form input[type=file]{font-size:14px;color:var(--ink);max-width:100%}
 /* Où je suis */
 .loc-now{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .loc-now span{color:var(--muted);font-size:14px}
@@ -368,7 +408,8 @@ button.ev:hover .t,button.ev.all:hover{text-decoration:underline}
 .sw button{width:24px;height:24px;border-radius:50%;border:1px solid color-mix(in srgb,var(--ink) 25%,transparent);background:var(--sc)}
 .sw button[aria-pressed="true"]{outline:2px solid var(--accent);outline-offset:1px}
 .add-pad{padding:20px;display:flex;flex-direction:column;gap:14px}
-.choices{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.choices{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+@media (min-width:500px){.choices{grid-template-columns:repeat(4,1fr)}}
 .choices button{border:1px solid var(--line);background:var(--surface-2);border-radius:14px;padding:16px 6px;display:flex;flex-direction:column;align-items:center;gap:8px;font-weight:600;font-size:14px}
 .choices svg{width:24px;height:24px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(92px + env(safe-area-inset-bottom,0px));z-index:60;background:var(--accent);color:var(--accent-ink);padding:10px 16px;border-radius:12px;font-weight:600;font-size:14px;max-width:calc(100% - 32px);box-shadow:0 6px 20px rgba(0,0,0,.2)}
@@ -383,6 +424,7 @@ button.ev:hover .t,button.ev.all:hover{text-decoration:underline}
     <a href="#accueil" data-view="accueil"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg></span>Accueil</a>
     <a href="#agenda" data-view="agenda" data-wk-now><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16.5" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></svg></span>Agenda</a>
     <button class="plus" type="button" data-new="menu" aria-label="Ajouter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">Nouveau</span></button>
+    <a href="#repas" data-view="repas" data-rw-now><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v7a2 2 0 0 0 2 2v9M11 3v7a2 2 0 0 1-2 2M17 21V3c-2 1-3 4-3 7s1 4 3 4"/></svg></span>Repas</a>
     <a href="#notes" data-view="notes"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10l4 4v14H5z"/><path d="m9 11 1.5 1.5L13 10M9 16h6"/></svg></span>Notes</a>
     <a href="#parametres" data-view="parametres" class="desk"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/></svg></span>Paramètres</a>
     <p class="foot" id="foot"></p>
@@ -402,6 +444,7 @@ button.ev:hover .t,button.ev.all:hover{text-decoration:underline}
     <section id="v-setup" hidden></section>
     <section id="v-accueil"></section>
     <section id="v-agenda" hidden></section>
+    <section id="v-repas" hidden></section>
     <section id="v-notes" hidden></section>
     <section id="v-parametres" hidden></section>
   </main>
@@ -435,8 +478,9 @@ button.ev:hover .t,button.ev.all:hover{text-decoration:underline}
         <button type="button" data-new="list"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="5" rx="1"/><path d="m4.5 6.5 1 1 2-2M11 6.5h10M11 15.5h10"/><rect x="3" y="13" width="5" height="5" rx="1"/></svg>Liste de tâches</button>
         <button type="button" data-new="text"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10l4 4v14H5z"/><path d="M9 11h6M9 15h6"/></svg>Note</button>
         <button type="button" data-new="event"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16.5" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4M12 12.5v5M9.5 15h5"/></svg>Événement</button>
+        <button type="button" data-new="meal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v7a2 2 0 0 0 2 2v9M11 3v7a2 2 0 0 1-2 2M17 21V3c-2 1-3 4-3 7s1 4 3 4"/></svg>Repas</button>
       </div>
-      <p class="cmeta">Pour dire où tu es, touche un jour dans « Où je suis ». Les repas arrivent à la prochaine étape.</p>
+      <p class="cmeta">Pour dire où tu es, touche un jour dans « Où je suis ».</p>
     </div>
   </div>
 </div>
@@ -472,6 +516,44 @@ button.ev:hover .t,button.ev.all:hover{text-decoration:underline}
     </form>
   </div>
 </div>
+
+<div class="overlay" id="ov-meal" hidden>
+  <div class="sheet small" role="dialog" aria-modal="true" aria-labelledby="ml-h">
+    <form class="add-pad form" id="ml-form" novalidate>
+      <h2 id="ml-h">Ajouter un repas</h2>
+      <div class="two"><label>Jour<input id="ml-d" type="date"></label><label>Repas<select id="ml-m"><option value="midi">Midi</option><option value="soir">Soir</option></select></label></div>
+      <p class="hint" id="ml-rempl" hidden></p>
+      <div class="seg" role="group" aria-label="Source">
+        <button type="button" data-mt="jow" aria-pressed="true">Lien Jow</button>
+        <button type="button" data-mt="img" aria-pressed="false">Capture</button>
+        <button type="button" data-mt="text" aria-pressed="false">Texte</button>
+      </div>
+      <div data-mp="jow" class="form">
+        <label>Lien de la recette<input id="ml-url" type="text" inputmode="url" placeholder="Colle ici ce que l'appli Jow a copié" autocomplete="off"></label>
+        <div class="jow-prev" id="ml-jow" hidden></div>
+      </div>
+      <div data-mp="img" class="form" hidden>
+        <label>Capture d'écran de la recette<input id="ml-file" type="file" accept="image/*"></label>
+        <img id="ml-prev" class="prev-img" hidden alt="Aperçu de la capture">
+      </div>
+      <label>Nom du plat<input id="ml-title" autocomplete="off" maxlength="150" placeholder="Rempli tout seul avec le lien"></label>
+      <label>Photo du plat (facultatif)<input id="ml-photo" type="file" accept="image/*"></label>
+      <img id="ml-pprev" class="prev-img" hidden alt="Aperçu de la photo du plat">
+      <p class="err" id="ml-err" role="alert" hidden></p>
+      <div class="acts"><button class="btn" type="button" id="ml-cancel">Annuler</button><button class="btn primary" type="submit">Ajouter</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="overlay" id="ov-img" hidden>
+  <div class="sheet small" role="dialog" aria-modal="true" aria-label="Capture de la recette">
+    <p class="cmeta" id="img-msg" hidden></p>
+    <img id="img-big" alt="Capture de la recette">
+    <button class="btn" type="button" id="img-close">Fermer</button>
+  </div>
+</div>
+
+<input type="file" id="photo-in" accept="image/*" hidden>
 
 <div class="toast" id="toast" role="status" hidden></div>
 <script src="app.js"></script>

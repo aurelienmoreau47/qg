@@ -1,12 +1,13 @@
 'use strict';
-// QG d'Aurélien, étape 3 : notes, tâches, dossiers + Google Agenda (semaine, cours, prochain match) + Où je suis (lieux, week-ends libres).
+// QG d'Aurélien, étape 4 : notes, tâches, dossiers + Google Agenda (semaine, cours, prochain match) + Où je suis (lieux, week-ends libres)
+// + planning repas (liens Jow, texte, captures et photos des plats).
 // Tout ce qui est modifié est gardé dans l'appareil tout de suite, puis envoyé au Google Sheet dès que ça capte.
 // Le Sheet renvoie tout : c'est comme ça que le téléphone et le PC restent pareils.
 
 const URL_SCRIPT_EN_LIGNE = 'https://script.google.com/macros/s/AKfycbzVtXadj1IIZda8jBdQt4UlrqpFwWFppuB4TWmAGOj89XU1_zofTkBwOMnq7tU1ccYScQ/exec'; // adresse /exec du script Google (voir README)
 const LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 const URL_SCRIPT = LOCAL ? location.origin + '/exec' : URL_SCRIPT_EN_LIGNE;
-const COLLS = ['dossiers', 'notes', 'reglages'];
+const COLLS = ['dossiers', 'notes', 'reglages', 'repas'];
 
 // ---------- stockage de l'appareil
 const LS = {
@@ -18,8 +19,8 @@ function lireCle(texte) { const m = String(texte || '').match(/[#&?]k=([A-Za-z0-
 (function () { const k = lireCle(location.hash); if (k) { LS.set('cle', k); history.replaceState(null, '', location.pathname + location.search); } })();
 let CLE = LS.get('cle', null);
 
-const DB = Object.assign({ dossiers: {}, notes: {}, reglages: {} }, LS.get('db', {}));
-const PEND = Object.assign({ dossiers: {}, notes: {}, reglages: {} }, LS.get('pend', {})); // éléments pas encore reçus par le Sheet : id -> heure de modif
+const DB = Object.assign({ dossiers: {}, notes: {}, reglages: {}, repas: {} }, LS.get('db', {}));
+const PEND = Object.assign({ dossiers: {}, notes: {}, reglages: {}, repas: {} }, LS.get('pend', {})); // éléments pas encore reçus par le Sheet : id -> heure de modif
 const INFO = Object.assign({ t: 0 }, LS.get('sync', {}));
 COLLS.forEach(c => Object.values(DB[c]).forEach(d => { if (d._neuf) delete DB[c][d.id]; })); // note ouverte puis appli fermée sans rien écrire
 const SET = { theme: LS.get('theme', 'light') };
@@ -94,7 +95,7 @@ function enregistrer(c, doc) {
 
 // ---------- envoi et réception
 const ST = { enCours: false, horsLigne: false, erreur: null, lien: false };
-const nbAttente = () => COLLS.reduce((a, c) => a + Object.keys(PEND[c]).length, 0);
+const nbAttente = () => COLLS.reduce((a, c) => a + Object.keys(PEND[c]).length, 0) + PH_ATT.length;
 let planT;
 function planifier(ms) { clearTimeout(planT); planT = setTimeout(synchroniser, ms == null ? 1500 : ms); }
 async function appel(corps) {
@@ -132,7 +133,8 @@ async function synchroniser() {
       persister();
       INFO.t = Date.now(); LS.set('sync', INFO);
       Object.assign(ST, { horsLigne: false, erreur: null, lien: false });
-      encore = nbAttente() > 0;
+      encore = nbAttente() - PH_ATT.length > 0;
+      envoyerPhotos();
       rafraichir();
     } else if (r && r.code === 'lien') { ST.lien = true; ST.erreur = r.erreur; }
     else { ST.erreur = (r && r.erreur) || 'réponse inattendue du Sheet'; }
@@ -411,6 +413,219 @@ function enregistrerPeriode(p, d, e) {
   enregistrer('reglages', { id: idNouveau('ou-'), v: { p, d, e, t: Date.now() } });
 }
 
+// ---------- Repas
+// Un repas par case (id « 2026-11-10|soir »), synchronisé comme les notes (onglet Repas du Sheet).
+// Les photos (capture de recette, photo du plat) sont réduites dans l'appareil, gardées dans sa mémoire
+// (cache « qg-photos »), puis envoyées une par une à l'onglet Photos. Un autre appareil les demande au besoin.
+const MOMENTS = { midi: 'Midi', soir: 'Soir' };
+const repas = k => { const r = DB.repas[k]; return r && !r.suppr ? r : null; };
+const FORK = '<svg class="fork" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3v7a2 2 0 0 0 2 2v9M11 3v7a2 2 0 0 1-2 2M17 21V3c-2 1-3 4-3 7s1 4 3 4"/></svg>';
+const CAM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>';
+const TH = ['yellow', 'green', 'blue', 'pink', 'lilac', 'grey'];
+const fondVignette = t => `var(--n-${TH[[...String(t || '')].reduce((a, c) => a + c.charCodeAt(0), 0) % TH.length]})`;
+const lienSur = u => /^https:\/\/(app\.jow\.com|(www\.)?jow\.fr)\//i.test(u || '');
+const imageJowSure = u => /^https:\/\/static\.jow\.fr\/[\w/.-]+$/.test(u || '');
+
+// --- photos
+const PH = { mem: {}, enCours: {}, essai: {} };
+let PH_ATT = LS.get('photosAtt', []);
+const PH_CACHE = 'qg-photos';
+const phCle = id => new URL('_photo/' + id, location.href).href;
+async function phGarder(id, data) {
+  PH.mem[id] = data;
+  try { const c = await caches.open(PH_CACHE); await c.put(phCle(id), new Response(data)); return true; } catch (e) { return false; }
+}
+async function phLire(id) {
+  if (PH.mem[id]) return PH.mem[id];
+  try { const c = await caches.open(PH_CACHE), r = await c.match(phCle(id)); if (r) { const d = await r.text(); PH.mem[id] = d; return d; } } catch (e) { }
+  return null;
+}
+async function phCharger(id) { // pour l'affichage : la mémoire de l'appareil, sinon le Sheet
+  const d = await phLire(id); if (d) return d;
+  if (!CLE || PH.enCours[id] || Date.now() - (PH.essai[id] || 0) < 60000) return null;
+  PH.enCours[id] = true; PH.essai[id] = Date.now();
+  let x = null;
+  try { const r = await appel({ a: 'photo', k: CLE, id }); if (r && r.ok && /^data:image\//.test(r.data || '')) { await phGarder(id, r.data); x = r.data; } } catch (e) { }
+  delete PH.enCours[id];
+  return x;
+}
+function phImg(id) { const d = PH.mem[id]; return `<img class="ph" data-ph="${esc(id)}" alt=""${d ? ` src="${esc(d)}"` : ' hidden'}>`; }
+function hydrater() {
+  // L'écran peut être redessiné pendant le chargement : on met la photo sur toutes les images qui l'attendent.
+  const ids = new Set([...document.querySelectorAll('img[data-ph][hidden]')].map(el => el.dataset.ph));
+  ids.forEach(async id => {
+    const d = await phCharger(id);
+    if (d) document.querySelectorAll('img[data-ph][hidden]').forEach(el => { if (el.dataset.ph === id) { el.src = d; el.hidden = false; } });
+  });
+}
+let phEnvoi = false;
+async function envoyerPhotos() {
+  if (phEnvoi || !PH_ATT.length || !CLE) return;
+  phEnvoi = true;
+  const retirer = id => { PH_ATT = PH_ATT.filter(x => x !== id); LS.set('photosAtt', PH_ATT); };
+  for (const id of PH_ATT.slice()) {
+    const data = await phLire(id);
+    if (!data) { retirer(id); continue; } // photo perdue (mémoire du téléphone vidée) : rien à envoyer
+    let r;
+    try { r = await appel({ a: 'photoEnvoi', k: CLE, id, data }); } catch (e) { ST.horsLigne = true; break; }
+    if (r && r.ok) retirer(id);
+    else if (r && /illisible|lourde|valable/.test(r.erreur || '')) { retirer(id); toast('Photo refusée par le Sheet : ' + r.erreur); }
+    else break; // le Sheet ne répond pas : on retentera à la prochaine synchro
+  }
+  phEnvoi = false; renderSync();
+}
+async function ajouterPhoto(id, data) {
+  await phGarder(id, data);
+  PH_ATT.push(id); LS.set('photosAtt', PH_ATT);
+  planifier(300);
+}
+// Réduit une image (capture ou photo) avant de la garder : JPEG, plus grand côté limité.
+function compresser(file, max, q) {
+  return new Promise((ok, ko) => {
+    if (!file) { ko(new Error('aucun fichier')); return; }
+    const u = URL.createObjectURL(file), im = new Image();
+    im.onload = () => {
+      const w = im.naturalWidth, h = im.naturalHeight; let s = Math.min(1, max / Math.max(w, h)), d = '';
+      const cv = document.createElement('canvas');
+      for (let i = 0; i < 6; i++) {
+        cv.width = Math.max(1, Math.round(w * s)); cv.height = Math.max(1, Math.round(h * s));
+        const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height); cx.drawImage(im, 0, 0, cv.width, cv.height);
+        d = cv.toDataURL('image/jpeg', q);
+        if (d.length <= 600000) break;
+        s *= 0.8; q = Math.max(0.5, q - 0.05);
+      }
+      URL.revokeObjectURL(u); ok(d);
+    };
+    im.onerror = () => { URL.revokeObjectURL(u); ko(new Error('image illisible')); };
+    im.src = u;
+  });
+}
+
+// --- affichage
+function repasHTML(m, k) {
+  const pic = m.photo ? phImg(m.photo) : imageJowSure(m.jimg) ? `<img src="${esc(m.jimg)}" alt="" loading="lazy">` : m.img ? phImg(m.img) : '';
+  const lbl = m.photo ? 'Changer ta photo du plat' : 'Ajouter ta photo du plat';
+  const lien = lienSur(m.url);
+  return `<div class="meal"><button type="button" class="thumb" data-photo="${esc(k)}" style="--th:${fondVignette(m.title)}" aria-label="${lbl}" title="${lbl}">${FORK}${pic}${m.photo ? '' : `<span class="cam">${CAM}</span>`}</button>
+    <div class="mi"><strong>${esc(m.title)}</strong>${m.mm ? `<span class="mm">${esc(m.mm)}</span>` : ''}
+      ${lien || m.img ? `<span class="acts">${lien ? `<a href="${esc(m.url)}" target="_blank" rel="noopener">Ouvrir dans Jow ↗</a>` : ''}${m.img ? `<button type="button" data-view-img="${esc(k)}">Voir la capture</button>` : ''}</span>` : ''}</div>
+    <button type="button" class="icon-btn del${S.mDel === k ? ' armed' : ''}" data-meal-del="${esc(k)}" aria-label="Retirer ce repas" title="Retirer ce repas">${S.mDel === k ? 'Retirer ?' : '×'}</button></div>`;
+}
+const caseRepas = (d, mo) => { const k = d + '|' + mo, m = repas(k); return m ? repasHTML(m, k) : `<button type="button" class="addslot" data-meal-add="${k}">+ ${MOMENTS[mo]}</button>`; };
+function repasBlock() {
+  const t = auj();
+  return `<div class="block a-repas"><div class="bh"><h2>Repas du jour</h2><a class="link" href="#repas" data-rw-now>Planning repas ›</a></div>
+    <div class="rtoday">${['midi', 'soir'].map(mo => `<div class="slot"><span class="sl">${MOMENTS[mo]}</span>${caseRepas(t, mo)}</div>`).join('')}</div></div>`;
+}
+function renderRepas() {
+  lieuxCtx();
+  const ws = S.rweek, t = auj(), days = [...Array(7)].map((_, i) => addDays(ws, i));
+  const n = days.reduce((a, d) => a + (repas(d + '|midi') ? 1 : 0) + (repas(d + '|soir') ? 1 : 0), 0);
+  $('#v-repas').innerHTML = `<div class="block">
+    <div class="wk-bar">
+      <button class="btn" type="button" data-rw="-1" aria-label="Semaine précédente">‹</button>
+      <div class="lbl"><strong>Semaine ${isoWeek(jourDe(ws))}</strong><span>${plageTxt(ws, addDays(ws, 6))} · ${n} repas sur 14</span></div>
+      <button class="btn" type="button" data-rw="1" aria-label="Semaine suivante">›</button>
+      <button class="btn" type="button" data-rw="0">Cette semaine</button>
+      <span class="sp"></span>
+      <button class="btn primary" type="button" data-new="meal">+ Repas</button>
+    </div>
+    <p class="cmeta">Touche la vignette d'un repas pour y mettre la photo de ton plat.</p>
+    <div class="rhead"><h2>Jour</h2><h2>Midi</h2><h2>Soir</h2></div>
+    <div class="rdays">${days.map(d => {
+      const p = lieuDu(d);
+      return `<div class="rday${d === t ? ' today' : ''}"><div class="dl">${cap(fmtCourt(d))}<small>${esc(nomLieu(p))}</small></div>
+        ${['midi', 'soir'].map(mo => `<div class="slot"><span class="sl">${MOMENTS[mo]}</span>${caseRepas(d, mo)}</div>`).join('')}</div>`;
+    }).join('')}</div></div>`;
+}
+
+// --- fenêtre « Ajouter un repas »
+function lienJow(txt) {
+  const m = String(txt || '').match(/https?:\/\/[^\s"'<>«»]+/i);
+  if (!m) return null;
+  const u = m[0].replace(/[).,;!]+$/, '').replace(/^http:/i, 'https:');
+  return lienSur(u) ? u : null;
+}
+function openRepas(k) {
+  const [d, mo] = (k || `${auj()}|${new Date().getHours() < 15 ? 'midi' : 'soir'}`).split('|');
+  $('#ov-add').hidden = true;
+  $('#ml-form').reset(); $('#ml-d').value = d; $('#ml-m').value = mo;
+  ['#ml-jow', '#ml-prev', '#ml-pprev', '#ml-err'].forEach(s => { $(s).hidden = true; });
+  S.mimg = null; S.mphoto = null; S.mjow = null; S.mEnvoi = false; $('#ml-title').dataset.auto = '1';
+  choixSource('jow'); majRemplace();
+  $('#ov-meal').hidden = false;
+}
+function fermerRepas() { $('#ov-meal').hidden = true; S.mjow = null; }
+function choixSource(t) {
+  S.mt = t;
+  document.querySelectorAll('[data-mt]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mt === t));
+  document.querySelectorAll('[data-mp]').forEach(p => { p.hidden = p.dataset.mp !== t; });
+  $('#ml-title').placeholder = t === 'jow' ? 'Rempli tout seul avec le lien' : t === 'img' ? 'Ex. : Curry de pois chiches' : 'Ex. : Restes, chez les parents, restau…';
+}
+function majRemplace() { const m = repas($('#ml-d').value + '|' + $('#ml-m').value), p = $('#ml-rempl'); p.hidden = !m; if (m) p.textContent = `Remplacera « ${m.title} ».`; }
+let jowT;
+function chercherJow() {
+  const brut = $('#ml-url').value.trim(), url = lienJow(brut), box = $('#ml-jow');
+  if (!url) {
+    S.mjow = null;
+    box.innerHTML = brut ? '<div class="mi"><strong>Pas de lien Jow ici</strong><span class="mm">Colle ce que l\'appli Jow a copié, ou un lien jow.fr.</span></div>' : '';
+    box.hidden = !brut; return;
+  }
+  if (S.mjow && S.mjow.url === url) return;
+  const j = S.mjow = { url, enCours: true };
+  apercuJow();
+  appel({ a: 'jow', k: CLE, url })
+    .then(r => { if (r && r.ok) j.res = r; else j.err = (r && r.erreur === 'action inconnue') ? 'Le script Google doit être mis à jour (qg 3) : écris le nom du plat.' : ((r && r.erreur) || 'Jow n\'a pas répondu : écris le nom du plat.'); })
+    .catch(() => { j.err = 'Pas de réseau : écris le nom du plat, le lien est gardé.'; })
+    .then(() => { j.enCours = false; if (S.mjow === j) apercuJow(); });
+}
+function apercuJow() {
+  const j = S.mjow, box = $('#ml-jow'); if (!j) { box.hidden = true; return; }
+  const r = j.res;
+  box.innerHTML = `<div class="thumb" style="--th:${fondVignette(r ? r.title : 'Jow')}">${FORK}${r && imageJowSure(r.img) ? `<img src="${esc(r.img)}" alt="">` : ''}</div>
+    <div class="mi"><strong>${esc(r ? r.title : j.enCours ? 'Je cherche la recette…' : 'Lien Jow gardé')}</strong><span class="mm">${esc(r ? (r.mm || 'Recette Jow') : j.enCours ? 'Jow' : j.err)}</span></div>`;
+  box.hidden = false;
+  if (r && $('#ml-title').dataset.auto === '1') $('#ml-title').value = r.title;
+}
+async function enregistrerRepas() {
+  if (S.mEnvoi) return;
+  const d = $('#ml-d').value, mo = $('#ml-m').value === 'midi' ? 'midi' : 'soir', er = $('#ml-err');
+  const err = msg => { er.textContent = msg; er.hidden = false; };
+  let title = $('#ml-title').value.trim();
+  if (!d) return err('Choisis un jour.');
+  const m = { id: d + '|' + mo, d, mo };
+  if (S.mt === 'jow') {
+    const url = lienJow($('#ml-url').value);
+    if (!url) return err('Je ne trouve pas de lien Jow dans ce que tu as collé.');
+    const j = S.mjow && S.mjow.url === url ? S.mjow : null;
+    if (j && j.enCours && !title) return err('Je cherche encore la recette : réessaie dans un instant.');
+    m.url = url;
+    if (j && j.res) { if (imageJowSure(j.res.img)) m.jimg = j.res.img; if (j.res.mm) m.mm = j.res.mm; title = title || j.res.title; }
+    if (!title) { $('#ml-title').focus(); return err('Lien gardé, mais écris le nom du plat.'); }
+  } else if (S.mt === 'img') {
+    if (!S.mimg) return err('Choisis d\'abord une capture d\'écran.');
+    title = title || 'Recette (capture)';
+  } else {
+    if (!title) return err('Écris ce que tu manges (ex. : Restes, chez les parents).');
+    m.text = true;
+  }
+  m.title = title.slice(0, 150);
+  S.mEnvoi = true;
+  if (S.mt === 'img') { m.img = idNouveau('p'); await ajouterPhoto(m.img, S.mimg); }
+  if (S.mphoto) { m.photo = idNouveau('p'); await ajouterPhoto(m.photo, S.mphoto); }
+  S.mEnvoi = false;
+  enregistrer('repas', m);
+  fermerRepas(); S.rweek = lundiDe(d); render();
+  toast(`${m.title} : ${fmtCourt(d)}, ${mo}`);
+}
+async function voirCapture(k) {
+  const m = repas(k); if (!m || !m.img) return;
+  const im = $('#img-big'); im.removeAttribute('src'); $('#img-msg').hidden = false; $('#img-msg').textContent = 'Chargement de la capture…';
+  $('#ov-img').hidden = false;
+  const d = await phCharger(m.img);
+  if (d) { im.src = d; $('#img-msg').hidden = true; } else $('#img-msg').textContent = 'Capture pas encore disponible sur cet appareil (elle arrive avec le réseau).';
+}
+
 // ---------- fenêtre d'un événement (ajout, modification, suppression dans Google Agenda)
 const EVF = { edit: null, delArm: false, envoi: false };
 function calOptions(sel) {
@@ -467,7 +682,7 @@ async function envoyerEv(op) {
 }
 
 // ---------- état de l'écran
-const S = { mode: LS.get('mode', 'perso') === 'raf' ? 'raf' : 'perso', view: 'accueil', nt: 'taches', folder: 'all', q: '', open: null, delArm: false, fDel: null, week: lundiDe(auj()), cday: null, ag: 'semaine', month: auj().slice(0, 7), plDel: null };
+const S = { mode: LS.get('mode', 'perso') === 'raf' ? 'raf' : 'perso', view: 'accueil', nt: 'taches', folder: 'all', q: '', open: null, delArm: false, fDel: null, week: lundiDe(auj()), cday: null, ag: 'semaine', month: auj().slice(0, 7), plDel: null, rweek: lundiDe(auj()), mDel: null, mt: 'jow', mimg: null, mphoto: null, mjow: null, mEnvoi: false, photoKey: null };
 const PIN = '<svg viewBox="0 0 24 24" fill="currentColor" aria-label="Épinglée"><path d="M16 3H8v2l1 1v5l-3 3v2h5v6l1 1 1-1v-6h5v-2l-3-3V6l1-1z"/></svg>';
 const FLAG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 21V4h11l-1.5 4L16 12H7v9z"/></svg>';
 const FOLDER_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg>';
@@ -506,11 +721,10 @@ function renderAccueil() {
     $('#v-accueil').innerHTML = `<div class="home raf">${matchBlock()}${urgentBlock()}${agendaBlock('raf', 'Agenda RAF')}${last}${pinsBlock('Notes épinglées RAF')}</div>`;
     return;
   }
-  // Ordre voulu : Où je suis, Cours, Tâches urgentes, Repas (étape 4), Agenda perso, Notes épinglées
+  // Ordre voulu : Où je suis, Cours, Tâches urgentes, Repas, Agenda perso, Notes épinglées
   lieuxCtx();
   const cours = coursBlock();
-  $('#v-accueil').innerHTML = `<div class="home perso${cours ? ' has-cours' : ''}">${locBlock()}${cours}${urgentBlock()}
-    <p class="soon a-soon">Repas du jour : ils arriveront ici à la prochaine étape.</p>${agendaBlock('perso', 'Agenda perso')}${pinsBlock('Notes épinglées')}</div>`;
+  $('#v-accueil').innerHTML = `<div class="home perso${cours ? ' has-cours' : ''}">${locBlock()}${cours}${urgentBlock()}${repasBlock()}${agendaBlock('perso', 'Agenda perso')}${pinsBlock('Notes épinglées')}</div>`;
 }
 
 function renderNotes() {
@@ -607,7 +821,7 @@ function renderSetup() {
     <div><button class="btn primary" type="submit">Brancher</button></div></form>`;
 }
 
-const VIEWS = ['accueil', 'agenda', 'notes', 'parametres'];
+const VIEWS = ['accueil', 'agenda', 'repas', 'notes', 'parametres'];
 function render() {
   document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === S.mode));
   const setup = !CLE;
@@ -620,6 +834,7 @@ function render() {
   if (setup) { $('#h1').textContent = 'Bienvenue'; $('#sub').textContent = 'Une seule fois par appareil'; renderSetup(); return; }
   if (S.view === 'accueil') { $('#h1').textContent = cap(`${JOURS[now.getDay()]} ${now.getDate()} ${MOIS[now.getMonth()]}`); $('#sub').textContent = `${sp} · semaine ${isoWeek(now)}`; renderAccueil(); }
   if (S.view === 'agenda') { $('#h1').textContent = 'Agenda'; $('#sub').textContent = `${sp} · Google Agenda`; renderAgenda(); }
+  if (S.view === 'repas') { $('#h1').textContent = 'Repas'; $('#sub').textContent = 'Planning de la semaine'; renderRepas(); }
   if (S.view === 'notes') {
     $('#h1').textContent = 'Notes et tâches'; $('#sub').textContent = sp;
     const had = document.activeElement && document.activeElement.id === 'q', pos = had ? document.activeElement.selectionStart : 0;
@@ -630,6 +845,7 @@ function render() {
     $('#h1').textContent = 'Paramètres'; $('#sub').textContent = 'Thème, lieux, agendas, dossiers et synchronisation';
     if (!(document.activeElement && document.activeElement.closest && document.activeElement.closest('#v-parametres'))) renderParams();
   }
+  hydrater();
 }
 // Après une synchro : on redessine sans déranger ce qui est en cours de saisie.
 function rafraichir() {
@@ -697,7 +913,25 @@ document.addEventListener('click', e => {
   const md = t.closest('[data-mode]');
   if (md) { S.mode = md.dataset.mode; LS.set('mode', S.mode); S.q = ''; if (S.view === 'parametres') { S.view = 'accueil'; history.pushState(null, '', '#accueil'); } render(); window.scrollTo(0, 0); return; }
   const nw = t.closest('[data-new]');
-  if (nw) { if (!CLE) return; const k = nw.dataset.new; if (k === 'menu') $('#ov-add').hidden = false; else if (k === 'event') openEv(); else newNote(k); return; }
+  if (nw) { if (!CLE) return; const k = nw.dataset.new; if (k === 'menu') $('#ov-add').hidden = false; else if (k === 'event') openEv(); else if (k === 'meal') openRepas(); else newNote(k); return; }
+  if (!$('#ov-meal').hidden && t.closest('#ov-meal')) {
+    if (t === $('#ov-meal') || t.closest('#ml-cancel')) fermerRepas();
+    else { const mt = t.closest('[data-mt]'); if (mt) choixSource(mt.dataset.mt); }
+    return;
+  }
+  if (!$('#ov-img').hidden && t.closest('#ov-img')) { if (t === $('#ov-img') || t.closest('#img-close')) $('#ov-img').hidden = true; return; }
+  const ma = t.closest('[data-meal-add]'); if (ma) { openRepas(ma.dataset.mealAdd); return; }
+  const mdl = t.closest('[data-meal-del]');
+  if (mdl) {
+    const k = mdl.dataset.mealDel; if (S.mDel !== k) { S.mDel = k; render(); return; }
+    const m = repas(k); S.mDel = null; if (m) { m.suppr = true; enregistrer('repas', m); }
+    render(); toast('Repas retiré'); return;
+  }
+  if (S.mDel && !t.closest('[data-meal-del]')) { S.mDel = null; render(); }
+  const phb = t.closest('[data-photo]'); if (phb) { S.photoKey = phb.dataset.photo; const i = $('#photo-in'); i.value = ''; i.click(); return; }
+  const vi = t.closest('[data-view-img]'); if (vi) { voirCapture(vi.dataset.viewImg); return; }
+  const rw = t.closest('[data-rw]'); if (rw) { const v = +rw.dataset.rw; S.rweek = v === 0 ? lundiDe(auj()) : addDays(S.rweek, 7 * v); renderRepas(); hydrater(); return; }
+  if (t.closest('[data-rw-now]')) { S.rweek = lundiDe(auj()); return; }
   if (t === $('#ov-add')) { $('#ov-add').hidden = true; return; }
   if (!$('#ov-ev').hidden && t.closest('#ov-ev')) {
     if (t === $('#ov-ev') || t.closest('#ev-cancel')) { fermerEv(); return; }
@@ -773,7 +1007,7 @@ document.addEventListener('click', e => {
   }
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { if (!$('#ov-place').hidden) fermerPlace(); else if (!$('#ov-ev').hidden) fermerEv(); else if (!$('#ov-editor').hidden) closeEditor(); else $('#ov-add').hidden = true; }
+  if (e.key === 'Escape') { if (!$('#ov-img').hidden) $('#ov-img').hidden = true; else if (!$('#ov-meal').hidden) fermerRepas(); else if (!$('#ov-place').hidden) fermerPlace(); else if (!$('#ov-ev').hidden) fermerEv(); else if (!$('#ov-editor').hidden) closeEditor(); else $('#ov-add').hidden = true; }
   if (e.key === 'Enter' && e.target.matches('[data-open]')) openEditor(e.target.dataset.open);
 });
 document.addEventListener('change', e => {
@@ -798,6 +1032,21 @@ document.addEventListener('change', e => {
     const k = t.dataset.plColor; if (!l[k]) return; l[k].c = t.value; garderLieux(l, L.def); renderParams(); return;
   }
   if (t.matches('[data-pl-name]')) { renderParams(); return; }
+  if (t.id === 'ml-d' || t.id === 'ml-m') { majRemplace(); return; }
+  if (t.id === 'ml-file' || t.id === 'ml-photo' || t.id === 'photo-in') {
+    const f = t.files && t.files[0]; if (!f) return;
+    const capture = t.id === 'ml-file';
+    compresser(f, capture ? 1600 : 1000, capture ? 0.7 : 0.72).then(async d => {
+      if (t.id === 'photo-in') {
+        const m = repas(S.photoKey); if (!m) return;
+        const id = idNouveau('p'); await ajouterPhoto(id, d);
+        m.photo = id; enregistrer('repas', m); render(); toast('Photo du plat ajoutée'); return;
+      }
+      if (capture) S.mimg = d; else S.mphoto = d;
+      const im = $(capture ? '#ml-prev' : '#ml-pprev'); im.src = d; im.hidden = false;
+    }).catch(() => toast('Image illisible : essaie une autre photo'));
+    return;
+  }
   if (t.id === 'pl-d') { const f = $('#pl-e'); if (t.value && (!f.value || f.value < t.value)) f.value = t.value; return; }
   if (t.id === 'ev-all') { majHeures(); return; }
   if (t.id === 'ev-start') { const s = t.value, f = $('#ev-end').value; if (s && (!f || f <= s)) { const [h, m] = s.split(':').map(Number); $('#ev-end').value = `${pad(Math.min(23, h + 1))}:${pad(h >= 23 ? 59 : m)}`; } return; }
@@ -806,6 +1055,8 @@ document.addEventListener('input', e => {
   const t = e.target, n = note();
   if (t.id === 'q') { S.q = t.value; renderNotes(); const i = $('#q'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); return; }
   if (t.matches('[data-f-name]')) { const f = dossier(t.dataset.fName); if (f && t.value.trim()) { f.n = t.value.trim(); enregistrer('dossiers', f); } return; }
+  if (t.id === 'ml-url') { clearTimeout(jowT); jowT = setTimeout(chercherJow, 500); return; }
+  if (t.id === 'ml-title') { t.dataset.auto = t.value ? '0' : '1'; return; }
   if (t.matches('[data-pl-name]')) {
     const L = regLieux(), l = JSON.parse(JSON.stringify(L.l)), k = t.dataset.plName;
     if (l[k] && t.value.trim()) { l[k].n = t.value.trim(); garderLieux(l, L.def); } return;
@@ -823,6 +1074,7 @@ document.addEventListener('submit', e => {
   e.preventDefault();
   const id = e.target.id;
   if (id === 'ev-form') { envoyerEv(EVF.edit ? 'modif' : 'ajout'); return; }
+  if (id === 'ml-form') { enregistrerRepas(); return; }
   if (id === 'pl-form') {
     const d = $('#pl-d').value, en = $('#pl-e').value, er = $('#pl-err'), c = document.querySelector('input[name="pl"]:checked');
     const msg = !d || !en ? 'Choisis les deux dates.' : en < d ? 'La date de fin doit être après la date de début.' : ecart(d, en) > 366 ? 'Une période d\'un an au plus.' : !c ? 'Choisis un lieu ou « Libre ».' : '';
@@ -853,7 +1105,7 @@ document.addEventListener('submit', e => {
 });
 
 // ---------- navigation et réveils
-function route() { const h = location.hash.slice(1); S.view = VIEWS.includes(h) ? h : 'accueil'; render(); window.scrollTo(0, 0); }
+function route() { const h = location.hash.slice(1); S.view = VIEWS.includes(h) ? h : 'accueil'; S.mDel = null; render(); window.scrollTo(0, 0); }
 window.addEventListener('hashchange', route);
 window.addEventListener('online', () => { ST.horsLigne = false; AGS.horsLigne = false; synchroniser(); agendaAJour(); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { synchroniser(); agendaAJour(); } });

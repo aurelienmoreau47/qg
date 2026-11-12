@@ -299,7 +299,49 @@ body.guide-on{overflow:hidden}
 .g-fig .sol{stroke:var(--prop);stroke-width:2}
 .g-fig .chaise{fill:none;stroke:var(--prop);stroke-width:5;stroke-linecap:round}
 .g-fig .bande{stroke:var(--band);stroke-width:4}
+.g-fig .serviette{stroke:var(--prop);stroke-width:5}
+.g-fig .meuble{fill:var(--prop)}
+.g-fig .ballon{fill:var(--band)}
 @media (prefers-reduced-motion:reduce){.g-ring .fg{transition:none}}
+/* Niveaux (étape 3) : question, résultat, Mes niveaux */
+.g-st2{aspect-ratio:2 / 1}
+.g-md{font-size:20px}
+.g-q{background:var(--surface-2);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.g-q h3,.g-res h3{font-family:var(--f-display);font-size:22px;font-weight:650;line-height:1.2;margin:0;text-transform:none;letter-spacing:normal}
+.g-q p{font-size:14px;color:var(--muted);margin:0}
+.g-res{border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:6px;background:var(--surface-2)}
+.g-res.up{background:var(--by-soft)}
+.g-res.lvl{background:var(--jaune);color:var(--jaune-ink)}
+.g-res .k{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.8}
+.g-res p{font-size:14.5px;font-weight:500;margin:0}
+.g-nx{display:grid;grid-template-columns:62px minmax(0,1fr);gap:10px;align-items:center;margin-top:6px;background:rgba(255,255,255,.55);border-radius:10px;padding:6px 8px}
+.g-nx b{display:block;font-size:14.5px;line-height:1.25}
+.g-nx small{font-size:12.5px;font-weight:600}
+.g-lien{border:0;background:none;color:var(--muted);font-weight:600;font-size:13.5px;text-decoration:underline;text-underline-offset:3px;padding:6px;align-self:center}
+.g-evo{font-size:13px;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--muted)}
+.g-evo.up{color:var(--by)}
+.g-evo.lvl{color:var(--jaune-ink);background:var(--jaune);border-radius:6px;padding:2px 7px}
+.g-titre{font-weight:700;font-size:16px}
+.g-regle{font-size:13.5px;color:var(--muted);background:var(--surface-2);border-radius:12px;padding:10px 12px;margin:0}
+.g-nv{display:grid;grid-template-columns:62px minmax(0,1fr);gap:10px;align-items:center;width:100%;text-align:left;border:0;border-top:1px solid var(--line);background:none;padding:10px 0;color:inherit}
+.g-nv:first-child{border-top:0}
+.g-ligne{display:flex;align-items:center;gap:10px;margin-top:6px}
+.g-pips{display:flex;gap:3px}
+.g-pips i{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;font-style:normal;font-size:11.5px;font-weight:700;border:1px solid var(--line);color:var(--muted)}
+.g-pips i.done{background:var(--by-soft);border-color:var(--by-soft);color:var(--by)}
+.g-pips i.now{background:var(--by);border-color:var(--by);color:var(--by-ink)}
+.g-barre{flex:1;height:5px;border-radius:3px;background:var(--line);overflow:hidden}
+.g-barre i{display:block;height:100%;background:var(--by);border-radius:3px}
+.g-det{background:var(--surface-2);border-radius:12px;padding:6px 10px 10px;margin-bottom:6px;display:flex;flex-direction:column}
+.g-det .g-th{background:var(--surface)}
+.g-etat{font-size:12px;font-weight:700;color:var(--muted)}
+.g-etat.now{color:var(--by)}
+.g-avenir .g-nm{color:var(--muted)}
+.g-note{font-size:12.5px;color:var(--muted);margin:6px 0 8px}
+.g-mat2{display:block;font-size:12px;font-weight:600;color:var(--warn)}
+/* la classe « done » des listes de tâches (marge et trait) ne doit pas toucher le guide */
+#v-guide .done{margin-top:0;padding-top:0;border-top:0}
+#v-guide .g-pips i.done{border:1px solid var(--by-soft)}
 
 /* Repas */
 .rhead{display:none}

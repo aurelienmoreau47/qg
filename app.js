@@ -5,7 +5,7 @@
 // Le Sheet renvoie tout : c'est comme ça que le téléphone et le PC restent pareils.
 
 const URL_SCRIPT_EN_LIGNE = 'https://script.google.com/macros/s/AKfycbzVtXadj1IIZda8jBdQt4UlrqpFwWFppuB4TWmAGOj89XU1_zofTkBwOMnq7tU1ccYScQ/exec'; // adresse /exec du script Google (voir README)
-const VERSION_APPLI = 'qg-9'; // même valeur que CACHE dans sw.js
+const VERSION_APPLI = 'qg-10'; // même valeur que CACHE dans sw.js
 const LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 const URL_SCRIPT = LOCAL ? location.origin + '/exec' : URL_SCRIPT_EN_LIGNE;
 const COLLS = ['dossiers', 'notes', 'reglages', 'repas'];
@@ -602,7 +602,7 @@ function renderPrepa() {
   const fourch = (a, b, f) => (a === b ? f(a) : f(a) + '-' + f(b));
   const objs = PREPA.objectifs.map(o => `<div class="goal${o.principal ? ' main' : ''}"><span class="gk">${o.k}</span><span class="gv">${fourch(o.de, o.a, x => x)} <small>boucles</small></span><span class="gm">≈ ${fourch(o.de, o.a, kmBoucles)} km</span></div>`).join('');
   const sem = s ? `${s.seances.map(seanceHTML).join('')}
-      <div class="renfo"><p><b>Renfo hanches et tronc avant chaque séance</b>Échauffement 5 min puis 8 exercices, 10 à 15 min. Le guide arrive avec la prochaine mise à jour.</p><button type="button" class="btn small" disabled>Démarrer l'échauffement</button></div>`
+      <div class="renfo"><p><b>Renfo hanches et tronc avant chaque séance</b>${renfoFaitAujourdhui() ? '<span class="rf-ok">Fait aujourd\'hui ✓</span>' : 'Échauffement 5 min puis 8 exercices, environ 15 min.'}</p><a class="btn small" href="#guide">${renfoFaitAujourdhui() ? 'Refaire le renfo' : 'Démarrer l\'échauffement'}</a></div>`
     : '<p class="empty">Séances pas encore détaillées.</p>';
   if (S.pwk == null) S.pwk = {};
   const phases = PREPA.phases.filter(ph => ph.de > 0).map(ph => {
@@ -937,7 +937,7 @@ function renderSetup() {
     <div><button class="btn primary" type="submit">Brancher</button></div></form>`;
 }
 
-const VIEWS = ['accueil', 'agenda', 'repas', 'notes', 'parametres', 'prepa'];
+const VIEWS = ['accueil', 'agenda', 'repas', 'notes', 'parametres', 'prepa', 'guide'];
 function render() {
   document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === S.mode));
   document.documentElement.setAttribute('data-sp', S.mode);
@@ -952,6 +952,9 @@ function render() {
   if (S.view === 'accueil') { $('#h1').textContent = cap(`${JOURS[now.getDay()]} ${now.getDate()} ${MOIS[now.getMonth()]}`); $('#sub').textContent = `${sp} · semaine ${isoWeek(now)}`; renderAccueil(); }
   if (S.view === 'agenda') { $('#h1').textContent = 'Agenda'; $('#sub').textContent = `${sp} · Google Agenda`; renderAgenda(); }
   if (S.view === 'repas') { $('#h1').textContent = 'Repas'; $('#sub').textContent = 'Planning de la semaine'; renderRepas(); }
+  if (S.view !== 'guide' && G.actif) guideFermer();
+  document.body.classList.toggle('guide-on', S.view === 'guide' && !setup);
+  if (S.view === 'guide') { $('#h1').textContent = 'Renfo'; $('#sub').textContent = ''; renderGuide(); }
   if (S.view === 'prepa') {
     $('#h1').textContent = 'Prépa backyard';
     $('#sub').textContent = PREPA_OK ? `${PREPA.course.nom} · sam. 10 avril 2027, ${PREPA.course.heure} · boucle ${String(PREPA.course.boucleKm).replace('.', ',')} km, ${PREPA.course.boucleDplus} m D+` : '';
@@ -972,6 +975,7 @@ function render() {
 // Après une synchro : on redessine sans déranger ce qui est en cours de saisie.
 function rafraichir() {
   purgerTerminees();
+  if (S.view === 'guide') { renderSync(); return; } // pas de redessin pendant le guide (minuteurs en cours)
   const a = document.activeElement;
   if (a && a.closest && (a.closest('#v-parametres') || a.id === 'q')) { renderSync(); return; }
   render();
@@ -1135,6 +1139,7 @@ function goSection(id) {
 // ---------- clics
 document.addEventListener('click', e => {
   const t = e.target;
+  if (guideClic(t)) return;
   const md = t.closest('[data-mode]');
   if (md) { S.mode = md.dataset.mode; LS.set('mode', S.mode); S.q = ''; if (S.view === 'parametres') { S.view = 'accueil'; history.pushState(null, '', '#accueil'); } render(); window.scrollTo(0, 0); return; }
   const nw = t.closest('[data-new]');
@@ -1348,6 +1353,7 @@ window.addEventListener('online', () => { ST.horsLigne = false; AGS.horsLigne = 
 // Nouvelle version publiée : elle se télécharge en fond, puis l'appli se recharge dès qu'aucune fenêtre ni saisie n'est en cours.
 let SWREG = null, MAJ_PRETE = false;
 function calme() {
+  if (S.view === 'guide') return false; // jamais de rechargement au milieu du renfo
   if ([...document.querySelectorAll('.overlay')].some(o => !o.hidden)) return false;
   const a = document.activeElement; return !(a && a.matches && a.matches('input, textarea, select, [contenteditable]'));
 }

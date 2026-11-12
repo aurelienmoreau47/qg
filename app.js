@@ -5,7 +5,7 @@
 // Le Sheet renvoie tout : c'est comme ça que le téléphone et le PC restent pareils.
 
 const URL_SCRIPT_EN_LIGNE = 'https://script.google.com/macros/s/AKfycbzVtXadj1IIZda8jBdQt4UlrqpFwWFppuB4TWmAGOj89XU1_zofTkBwOMnq7tU1ccYScQ/exec'; // adresse /exec du script Google (voir README)
-const VERSION_APPLI = 'qg-8'; // même valeur que CACHE dans sw.js
+const VERSION_APPLI = 'qg-9'; // même valeur que CACHE dans sw.js
 const LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 const URL_SCRIPT = LOCAL ? location.origin + '/exec' : URL_SCRIPT_EN_LIGNE;
 const COLLS = ['dossiers', 'notes', 'reglages', 'repas'];
@@ -546,6 +546,91 @@ function repasBlock() {
   return `<div class="block a-repas"><div class="bh"><h2>Repas du jour</h2><a class="link" href="#repas" data-rw-now>Planning repas ›</a></div>
     <div class="rtoday">${['midi', 'soir'].map(mo => `<div class="slot"><span class="sl">${MOMENTS[mo]}</span>${caseRepas(t, mo)}</div>`).join('')}</div></div>`;
 }
+
+// ---------- Prépa backyard
+// Le plan vient de prepa.js (tenu par Claude). Une séance cochée est gardée dans les réglages (id « pf-<id> », v = vrai / faux).
+const PREPA_OK = typeof PREPA !== 'undefined';
+const semPrepa = d => Math.max(0, Math.min(21, Math.floor(ecart(PREPA.s1, d) / 7) + 1));
+const phasePrepa = n => PREPA.phases.find(p => n >= p.de && n <= p.a) || PREPA.phases[0];
+const debutSemPrepa = n => addDays(PREPA.s1, (n - 1) * 7);
+const jPrepa = () => ecart(auj(), PREPA.course.jour);
+const kmBoucles = n => (n * PREPA.course.boucleKm).toFixed(0);
+const jourCourt = s => { const d = jourDe(s); return `${JOURS[d.getDay()].slice(0, 3)}. ${d.getDate()}/${pad(d.getMonth() + 1)}`; };
+const jr = d => (d.getDate() === 1 ? '1er' : d.getDate());
+const plagePrepa = (a, b) => { const x = jourDe(a), y = jourDe(b); return x.getMonth() === y.getMonth() ? `${jr(x)} au ${jr(y)} ${MOISC[y.getMonth()]}` : `${jr(x)} ${MOISC[x.getMonth()]} au ${jr(y)} ${MOISC[y.getMonth()]}`; };
+function seanceFaite(x) { const r = DB.reglages['pf-' + x.id]; return r && !r.suppr ? !!r.v : !!x.faite; }
+function quandSeance(x) { if (!x.jour) return ''; return (x.jour === auj() ? 'Aujourd\'hui' : jourCourt(x.jour)) + (x.moment ? ', ' + x.moment : ''); }
+// Prochaine séance : la première non cochée de la semaine en cours (sans jour, ou pas encore passée), sinon de la semaine suivante.
+function prochaineSeance() {
+  const n = semPrepa(auj()), t = auj();
+  for (const k of [n, n + 1]) {
+    const s = PREPA.semaines[k]; if (!s) continue;
+    const x = s.seances.find(x => !seanceFaite(x) && (!x.jour || x.jour >= t));
+    if (x) return k > n && !x.jour ? Object.assign({}, x, { des: debutSemPrepa(k) }) : x;
+  }
+  return null;
+}
+function barrePrepa(n) {
+  let h = '';
+  for (let i = 1; i <= 21; i++) {
+    const r = PREPA.reperes[i], c = [i < n ? 'done' : '', i === n ? 'now' : '', r && r[0] === 'mb' ? 'mb' : '', r && r[0] === 'lt' ? 'lt' : ''].filter(Boolean).join(' ');
+    h += `<i class="${c}" title="S${i}"></i>`;
+  }
+  return `<div class="bar" role="img" aria-label="Semaine ${n} sur 21">${h}</div>`;
+}
+function prepaBlock() {
+  if (!PREPA_OK || jPrepa() < 0) return '';
+  const n = semPrepa(auj()), p = phasePrepa(n), x = prochaineSeance(), j = jPrepa();
+  const titre = n === 0 ? `${p.nom} · S1 commence ${jourCourt(PREPA.s1)}` : `Semaine ${n} sur 21 · ${p.nom}`;
+  const today = x && x.jour === auj();
+  const next = x ? `<span class="next${today ? ' today' : ''}"><b>${quandSeance(x) || (x.des ? 'À partir du ' + jourCourt(x.des) : 'Prochaine séance')}</b>${esc(x.quoi)}</span>` : `<span class="next"><b>Cette semaine</b>Toutes les séances sont faites.</span>`;
+  return `<div class="block a-prepa"><div class="bh"><h2>Prépa backyard</h2></div>
+    <a class="encart" href="#prepa"><span class="k">${esc(PREPA.course.nom)}</span><span class="t">${titre}</span>
+      <span class="j">${j === 0 ? 'Jour J' : 'J-' + j}<small>10 avril</small></span>${barrePrepa(n)}${next}<span class="go">Voir la prépa ›</span></a></div>`;
+}
+function seanceHTML(x) {
+  const today = x.jour === auj(), ok = seanceFaite(x);
+  return `<div class="se${today ? ' today' : ''}">
+    <button type="button" class="ck" data-pf="${x.id}" aria-pressed="${ok}" aria-label="${ok ? 'Décocher' : 'Marquer comme faite'} : ${esc(x.quoi)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
+    <div><div class="when">${quandSeance(x) || 'À placer dans la semaine'}</div><div class="what">${esc(x.quoi)}</div><div class="how">${esc(x.consigne || '')}</div>${x.resultat && ok ? `<div class="res">${x.resultat}</div>` : ''}</div></div>`;
+}
+function renderPrepa() {
+  const v = $('#v-prepa');
+  if (!PREPA_OK) { v.innerHTML = '<p class="hint">Le plan n\'est pas chargé. Ouvre l\'appli avec du réseau une fois.</p>'; return; }
+  const n = semPrepa(auj()), p = phasePrepa(n), s = PREPA.semaines[n], j = jPrepa();
+  const deb = n === 0 ? addDays(PREPA.s1, -7) : debutSemPrepa(n);
+  const fourch = (a, b, f) => (a === b ? f(a) : f(a) + '-' + f(b));
+  const objs = PREPA.objectifs.map(o => `<div class="goal${o.principal ? ' main' : ''}"><span class="gk">${o.k}</span><span class="gv">${fourch(o.de, o.a, x => x)} <small>boucles</small></span><span class="gm">≈ ${fourch(o.de, o.a, kmBoucles)} km</span></div>`).join('');
+  const sem = s ? `${s.seances.map(seanceHTML).join('')}
+      <div class="renfo"><p><b>Renfo hanches et tronc avant chaque séance</b>Échauffement 5 min puis 8 exercices, 10 à 15 min. Le guide arrive avec la prochaine mise à jour.</p><button type="button" class="btn small" disabled>Démarrer l'échauffement</button></div>`
+    : '<p class="empty">Séances pas encore détaillées.</p>';
+  if (S.pwk == null) S.pwk = {};
+  const phases = PREPA.phases.filter(ph => ph.de > 0).map(ph => {
+    let w = '';
+    for (let i = ph.de; i <= ph.a; i++) {
+      const a = debutSemPrepa(i), r = PREPA.reperes[i], det = PREPA.semaines[i];
+      const ouvert = det && (S.pwk[i] != null ? S.pwk[i] : i === n);
+      const tag = r ? `<span class="tg ${r[0]}">${r[1]}</span>` : `<span class="tg td">${det ? esc(det.vol) + ' ›' : 'à détailler'}</span>`;
+      w += `<div class="wk${i < n ? ' past' : i === n ? ' now' : ''}"><button type="button" ${det ? `data-pwk="${i}" aria-expanded="${!!ouvert}"` : 'disabled'}><span class="n">S${i}</span><span class="d">${plagePrepa(a, addDays(a, 6))}</span>${tag}</button>${ouvert ? `<div class="det"><ul>${det.seances.map(x => `<li>${esc(x.quoi)}</li>`).join('')}</ul></div>` : ''}</div>`;
+    }
+    return `<div class="phase"><div class="phh"><strong>${ph.nom}</strong><span>S${ph.de} à S${ph.a} · ${ph.vol} par semaine</span></div><p class="phr">${ph.resume}</p><div class="weeks">${w}</div></div>`;
+  }).join('');
+  v.innerHTML = `<div class="pp">
+    <a class="back" href="#accueil">‹ Accueil</a>
+    <div class="hero">
+      <div class="j">${j > 0 ? 'J-' + j : j === 0 ? 'Jour J' : 'Fini'}<small>${j > 0 ? 'avant le départ' : ''}</small></div>
+      <div><div class="ph">${n === 0 ? p.nom : 'Semaine ' + n + ' sur 21'}</div><div class="pd">${n === 0 ? 'Le plan commence ' + jourCourt(PREPA.s1) : 'Phase ' + p.nom.toLowerCase()}</div></div>
+      ${barrePrepa(n)}
+      <div class="legend"><span><i></i>faite</span><span><i class="n"></i>en cours</span><span><i class="l"></i>allégée</span><span><i class="d"></i>mini-backyard</span></div>
+    </div>
+    <div class="block"><div class="bh"><h2>Objectifs</h2></div><div class="goals">${objs}</div></div>
+    <div class="block"><div class="bh"><h2>Semaine ${n} · ${plagePrepa(deb, addDays(deb, 6))}</h2><span class="cmeta">${s ? esc(s.vol) : ''}</span></div>
+      <div class="panel">${sem}</div>
+      ${PREPA.alerte ? `<p class="alerte">${esc(PREPA.alerte)}</p>` : ''}
+    </div>
+    <div class="block"><div class="bh"><h2>Le plan, 21 semaines</h2></div><div class="plan">${phases}</div></div>
+  </div>`;
+}
 function renderRepas() {
   lieuxCtx();
   const ws = S.rweek, t = auj(), days = [...Array(7)].map((_, i) => addDays(ws, i));
@@ -753,8 +838,8 @@ function renderAccueil() {
   }
   // Ordre voulu : Où je suis, Cours, Tâches urgentes, Repas, Agenda perso, Notes épinglées
   lieuxCtx();
-  const cours = coursBlock();
-  $('#v-accueil').innerHTML = `<div class="home perso${cours ? ' has-cours' : ''}">${locBlock()}${cours}${urgentBlock()}${repasBlock()}${agendaBlock('perso', 'Agenda perso')}${pinsBlock('Notes épinglées')}</div>`;
+  const cours = coursBlock(), prepa = prepaBlock();
+  $('#v-accueil').innerHTML = `<div class="home perso${cours ? ' has-cours' : ''}${prepa ? '' : ' sans-prepa'}">${locBlock()}${cours}${urgentBlock()}${repasBlock()}${prepa}${agendaBlock('perso', 'Agenda perso')}${pinsBlock('Notes épinglées')}</div>`;
 }
 
 function renderNotes() {
@@ -852,7 +937,7 @@ function renderSetup() {
     <div><button class="btn primary" type="submit">Brancher</button></div></form>`;
 }
 
-const VIEWS = ['accueil', 'agenda', 'repas', 'notes', 'parametres'];
+const VIEWS = ['accueil', 'agenda', 'repas', 'notes', 'parametres', 'prepa'];
 function render() {
   document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === S.mode));
   document.documentElement.setAttribute('data-sp', S.mode);
@@ -867,6 +952,11 @@ function render() {
   if (S.view === 'accueil') { $('#h1').textContent = cap(`${JOURS[now.getDay()]} ${now.getDate()} ${MOIS[now.getMonth()]}`); $('#sub').textContent = `${sp} · semaine ${isoWeek(now)}`; renderAccueil(); }
   if (S.view === 'agenda') { $('#h1').textContent = 'Agenda'; $('#sub').textContent = `${sp} · Google Agenda`; renderAgenda(); }
   if (S.view === 'repas') { $('#h1').textContent = 'Repas'; $('#sub').textContent = 'Planning de la semaine'; renderRepas(); }
+  if (S.view === 'prepa') {
+    $('#h1').textContent = 'Prépa backyard';
+    $('#sub').textContent = PREPA_OK ? `${PREPA.course.nom} · sam. 10 avril 2027, ${PREPA.course.heure} · boucle ${String(PREPA.course.boucleKm).replace('.', ',')} km, ${PREPA.course.boucleDplus} m D+` : '';
+    renderPrepa();
+  }
   if (S.view === 'notes') {
     $('#h1').textContent = 'Notes et tâches'; $('#sub').textContent = sp;
     const had = document.activeElement && document.activeElement.id === 'q', pos = had ? document.activeElement.selectionStart : 0;
@@ -1056,6 +1146,9 @@ document.addEventListener('click', e => {
   }
   if (!$('#ov-img').hidden && t.closest('#ov-img')) { if (t === $('#ov-img') || t.closest('#img-close')) $('#ov-img').hidden = true; return; }
   if (!$('#ov-move').hidden && t.closest('#ov-move')) { if (t === $('#ov-move') || t.closest('#mv-cancel')) fermerMove(); return; }
+  const pf = t.closest('[data-pf]');
+  if (pf) { const id = pf.dataset.pf, x = Object.values(PREPA.semaines).flatMap(s => s.seances).find(s => s.id === id); if (x) { const ok = !seanceFaite(x); enregistrer('reglages', { id: 'pf-' + id, v: ok }); renderPrepa(); toast(ok ? `Séance faite : ${x.quoi}` : `Séance décochée : ${x.quoi}`); } return; }
+  const pw = t.closest('[data-pwk]'); if (pw) { const i = +pw.dataset.pwk; S.pwk = S.pwk || {}; S.pwk[i] = pw.getAttribute('aria-expanded') !== 'true'; renderPrepa(); return; }
   const mmv = t.closest('[data-meal-move]'); if (mmv) { openMove(mmv.dataset.mealMove); return; }
   const ma = t.closest('[data-meal-add]'); if (ma) { openRepas(ma.dataset.mealAdd); return; }
   const mdl = t.closest('[data-meal-del]');

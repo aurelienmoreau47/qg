@@ -20,6 +20,7 @@
   --bg:#EDF0F3; --surface:#FFFFFF; --surface-2:#F5F7F9; --ink:#15202B; --muted:#5A6672; --line:#D7DDE3;
   --accent:#1E3550; --accent-ink:#FFFFFF; --jaune:#F6C71C; --jaune-ink:#271F00; --raf:#C33E37; --raf-ink:#FFFFFF;
   --ok:#2E8B57; --warn:#C7741A; --danger:#B83A32; --scrim:rgba(12,17,22,.48);
+  --by:#2F5D46; --by-ink:#FFFFFF; --by-soft:#DCEBE1; --by-mid:#8DB89D;
   --n-default:#FFFFFF; --n-grey:#DCE3EA; --n-blue:#C6DAEA; --n-pink:#F1C0BA; --n-yellow:#F6E5A2; --n-green:#CDE6D0; --n-lilac:#DFD5F1;
   --f-display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
   --f-body:"Figtree","Segoe UI",system-ui,sans-serif;
@@ -29,12 +30,14 @@
   --bg:#0F1317; --surface:#171D24; --surface-2:#1E252D; --ink:#E6EBF0; --muted:#97A2AD; --line:#2B343E;
   --accent:#C9D8EC; --accent-ink:#0F1823; --raf:#E2665E; --raf-ink:#1A0908;
   --ok:#55C08A; --warn:#E89A45; --danger:#E06A60; --scrim:rgba(0,0,0,.6);
+  --by:#8FD1AA; --by-ink:#0E1F16; --by-soft:#1C3127; --by-mid:#3F6E55;
   --n-default:#171D24; --n-grey:#28313B; --n-blue:#1D3245; --n-pink:#472826; --n-yellow:#3F3716; --n-green:#1E3829; --n-lilac:#312848;
   color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#0F1317; --surface:#171D24; --surface-2:#1E252D; --ink:#E6EBF0; --muted:#97A2AD; --line:#2B343E;
   --accent:#C9D8EC; --accent-ink:#0F1823; --raf:#E2665E; --raf-ink:#1A0908;
   --ok:#55C08A; --warn:#E89A45; --danger:#E06A60; --scrim:rgba(0,0,0,.6);
+  --by:#8FD1AA; --by-ink:#0E1F16; --by-soft:#1C3127; --by-mid:#3F6E55;
   --n-default:#171D24; --n-grey:#28313B; --n-blue:#1D3245; --n-pink:#472826; --n-yellow:#3F3716; --n-green:#1E3829; --n-lilac:#312848;
   color-scheme:dark}
 /* Espace RAF : fond légèrement rosé, boutons principaux et onglet actif en rouge RAF */
@@ -124,11 +127,94 @@ main{max-width:1240px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-le
 .home{display:grid;gap:20px}
 .home>*{min-width:0}
 @media (min-width:1100px){
-  .home.perso{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"loc urgent" "repas agenda" "pins pins";align-items:start}
-  .home.perso.has-cours{grid-template-areas:"loc urgent" "cours cours" "repas agenda" "pins pins"}
+  .home.perso{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"loc urgent" "repas agenda" "prepa agenda" "pins pins";align-items:start}
+  .home.perso.has-cours{grid-template-areas:"loc urgent" "cours cours" "repas agenda" "prepa agenda" "pins pins"}
+  .home.perso.sans-prepa{grid-template-areas:"loc urgent" "repas agenda" "pins pins"}
+  .home.perso.has-cours.sans-prepa{grid-template-areas:"loc urgent" "cours cours" "repas agenda" "pins pins"}
+  .a-prepa{grid-area:prepa}
   .home.raf{grid-template-columns:minmax(0,400px) minmax(0,1fr);grid-template-areas:"match pins" "urgent pins" "agenda pins" "last pins";align-items:start}
   .a-urgent{grid-area:urgent}.a-pins{grid-area:pins}.a-last{grid-area:last}.a-agenda{grid-area:agenda}.a-cours{grid-area:cours}.a-match{grid-area:match}.a-loc{grid-area:loc}.a-repas{grid-area:repas}
 }
+/* Prépa backyard : encart de l'accueil perso et page #prepa (plan dans prepa.js) */
+.encart{border:0;text-align:left;width:100%;background:var(--by);color:var(--by-ink);border-radius:var(--r);padding:14px 16px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 14px;align-items:start;text-decoration:none}
+.encart .k{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.8}
+.encart .t{font-family:var(--f-display);font-size:20px;font-weight:650;line-height:1.15}
+.encart .j{grid-row:1 / span 2;grid-column:2;font-family:var(--f-display);font-size:44px;font-weight:700;line-height:.95;letter-spacing:-.02em;text-align:right}
+.encart .j small{display:block;font-family:var(--f-body);font-size:11.5px;font-weight:600;letter-spacing:.04em;opacity:.8;margin-top:4px}
+.encart .bar{grid-column:1 / -1;margin-top:8px}
+.encart .next{grid-column:1 / -1;margin-top:8px;background:color-mix(in srgb,var(--by-ink) 13%,transparent);border-radius:10px;padding:9px 11px;font-size:14px;line-height:1.35}
+.encart .next b{display:block;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;opacity:.85;margin-bottom:1px}
+.encart .next.today{background:var(--jaune);color:var(--jaune-ink)}
+.encart .go{grid-column:1 / -1;font-size:13px;font-weight:600;opacity:.85;margin-top:2px}
+.bar{display:grid;grid-template-columns:repeat(21,minmax(0,1fr));gap:2px}
+.bar i{height:9px;border-radius:2px;background:color-mix(in srgb,currentColor 22%,transparent);position:relative}
+.bar i.done{background:currentColor}
+.bar i.now{background:var(--jaune);outline:1.5px solid var(--jaune);outline-offset:1px}
+.bar i.mb::after{content:"";position:absolute;left:50%;top:-6px;width:4px;height:4px;margin-left:-2px;border-radius:50%;background:currentColor}
+.bar i.lt{height:5px;margin-top:4px}
+.pp{display:flex;flex-direction:column;gap:18px;max-width:760px}
+.pp .back{font-weight:700;font-size:14px;color:var(--muted);text-decoration:none;align-self:flex-start}
+.pp .back:hover{color:var(--ink)}
+.hero{background:var(--by-soft);border-radius:var(--r);padding:14px 16px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 16px;align-items:center}
+.hero .j{font-family:var(--f-display);font-size:52px;font-weight:700;line-height:.9;letter-spacing:-.02em;color:var(--by)}
+.hero .j small{display:block;font-family:var(--f-body);font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.02em;margin-top:5px}
+.hero .ph{font-family:var(--f-display);font-weight:650;font-size:19px;line-height:1.15}
+.hero .pd{font-size:13.5px;color:var(--muted)}
+.hero .bar{grid-column:1 / -1;margin-top:10px;color:var(--by)}
+.hero .legend{grid-column:1 / -1;font-size:12px;gap:4px 14px}
+.hero .legend i{width:10px;height:8px;border-radius:2px;background:var(--by)}
+.hero .legend i.l{height:4px;background:var(--by-mid)}
+.hero .legend i.d{width:5px;height:5px;border-radius:50%}
+.hero .legend i.n{background:var(--jaune)}
+.goals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.goal{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 10px 9px;display:flex;flex-direction:column;gap:1px;min-width:0}
+.goal .gk{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.goal .gv{font-family:var(--f-display);font-size:24px;font-weight:650;line-height:1.1}
+.goal .gv small{font-family:var(--f-body);font-size:12.5px;font-weight:600;color:var(--muted)}
+.goal .gm{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.goal.main{border:2px solid var(--by)}
+.goal.main .gk{color:var(--by)}
+.se{display:grid;grid-template-columns:30px minmax(0,1fr);gap:4px 10px;padding:11px 0;border-top:1px solid var(--line)}
+.se:first-child{border-top:0}
+.se .ck{width:26px;height:26px;border-radius:50%;border:2px solid var(--line);background:transparent;display:grid;place-items:center;padding:0;margin-top:1px}
+.se .ck svg{width:14px;height:14px;opacity:0}
+.se .ck[aria-pressed="true"]{background:var(--ok);border-color:var(--ok);color:var(--surface)}
+.se .ck[aria-pressed="true"] svg{opacity:1}
+.se .when{font-size:12.5px;font-weight:700;color:var(--muted);letter-spacing:.02em}
+.se .what{font-weight:650}
+.se .how{font-size:13.5px;color:var(--muted)}
+.se .res{font-size:13px;margin-top:2px;background:var(--surface-2);border-radius:8px;padding:6px 9px}
+.se .res b{color:var(--warn)}
+.se.today{background:color-mix(in srgb,var(--jaune) 16%,transparent);border-radius:10px;margin:2px -8px;padding:11px 8px;border-top-color:transparent}
+.se.today+.se{border-top-color:transparent}
+.se.today .when{color:var(--jaune-ink);background:var(--jaune);border-radius:5px;padding:0 5px;justify-self:start}
+.renfo{display:flex;align-items:center;gap:8px 12px;justify-content:space-between;flex-wrap:wrap;background:var(--surface-2);border-radius:10px;padding:10px 12px;margin:4px 0 10px}
+.renfo p{font-size:13.5px;min-width:0;flex:1 1 180px;color:var(--muted)}
+.renfo p b{display:block;font-size:14px;color:var(--ink)}
+.renfo .btn{background:var(--by);border-color:var(--by);color:var(--by-ink)}
+.alerte{font-size:13px;color:var(--muted);border-left:3px solid var(--warn);padding:2px 0 2px 10px}
+.plan{display:flex;flex-direction:column;gap:12px}
+.phase{display:flex;flex-direction:column;gap:6px}
+.phase .phh{display:flex;justify-content:space-between;align-items:baseline;gap:4px 10px;flex-wrap:wrap}
+.phase .phh strong{font-family:var(--f-display);font-weight:650;font-size:16px}
+.phase .phh span{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.phase .phr{font-size:13px;color:var(--muted)}
+.weeks{display:flex;flex-direction:column;gap:5px}
+.wk{background:var(--surface);border:1px solid var(--line);border-radius:10px;display:flex;flex-direction:column}
+.wk>button{border:0;background:none;text-align:left;display:grid;grid-template-columns:38px minmax(0,1fr) auto;gap:8px;align-items:center;padding:9px 11px;width:100%}
+.wk>button:disabled{opacity:1;cursor:default}
+.wk .n{font-family:var(--f-display);font-weight:700;font-size:15px}
+.wk .d{font-size:13.5px;font-variant-numeric:tabular-nums}
+.wk .tg{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-radius:6px;padding:2px 6px;white-space:nowrap}
+.tg.mb{background:var(--by);color:var(--by-ink)}
+.tg.lt{background:var(--surface-2);color:var(--muted);border:1px solid var(--line)}
+.tg.af{background:var(--by-soft);color:var(--by)}
+.tg.td{color:var(--muted);font-weight:600;text-transform:none;letter-spacing:0;font-size:12px;padding:0}
+.wk.now{border:2px solid var(--jaune)}
+.wk.past{opacity:.55}
+.wk .det{padding:0 11px 10px 57px;font-size:13.5px}
+.wk .det ul{margin:0;padding-left:16px}
+
 /* Repas */
 .rhead{display:none}
 .rdays{display:flex;flex-direction:column;gap:8px}
@@ -467,6 +553,7 @@ button.ev:hover .t,button.ev.all:hover{text-decoration:underline}
     <section id="v-repas" hidden></section>
     <section id="v-notes" hidden></section>
     <section id="v-parametres" hidden></section>
+    <section id="v-prepa" hidden></section>
   </main>
 </div>
 
@@ -587,6 +674,7 @@ button.ev:hover .t,button.ev.all:hover{text-decoration:underline}
 <input type="file" id="photo-in" accept="image/*" hidden>
 
 <div class="toast" id="toast" role="status" hidden></div>
+<script src="prepa.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

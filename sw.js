@@ -1,7 +1,7 @@
 // Réseau d'abord (pour recevoir les mises à jour), copie gardée en secours (pour marcher sans réseau).
 // Changer CACHE à chaque nouvelle version publiée, et VERSION_APPLI au début d'app.js (même valeur).
 // « qg-photos » (photos des repas, rangées par l'appli) et « qg-jow » (photos des recettes Jow) survivent aux mises à jour.
-const CACHE = 'qg-12';
+const CACHE = 'qg-13';
 const GARDES = [CACHE, 'qg-photos', 'qg-jow'];
 const FICHIERS = ['./', 'index.html', 'app.js', 'prepa.js', 'guide.js', 'manifest.webmanifest', 'icone.svg', 'icone-180.png', 'icone-192.png', 'icone-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FICHIERS.map(f => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting())); });

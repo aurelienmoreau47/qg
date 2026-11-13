@@ -5,7 +5,7 @@
 // Le Sheet renvoie tout : c'est comme ça que le téléphone et le PC restent pareils.
 
 const URL_SCRIPT_EN_LIGNE = 'https://script.google.com/macros/s/AKfycbzVtXadj1IIZda8jBdQt4UlrqpFwWFppuB4TWmAGOj89XU1_zofTkBwOMnq7tU1ccYScQ/exec'; // adresse /exec du script Google (voir README)
-const VERSION_APPLI = 'qg-12'; // même valeur que CACHE dans sw.js
+const VERSION_APPLI = 'qg-13'; // même valeur que CACHE dans sw.js
 const LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 const URL_SCRIPT = LOCAL ? location.origin + '/exec' : URL_SCRIPT_EN_LIGNE;
 const COLLS = ['dossiers', 'notes', 'reglages', 'repas'];

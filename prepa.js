@@ -15,7 +15,7 @@ const PREPA = {
   ],
   phases: [
     { nom: 'Mise en route', de: 0, a: 0, vol: '2 séances', resume: 'Deux sorties légères avant le début du plan.' },
-    { nom: 'Reprise', de: 1, a: 6, vol: '1h15 → 2h10', resume: '3 séances course-marche, renfo avant chaque séance.' },
+    { nom: 'Reprise', de: 1, a: 6, vol: '1h05 → 2h10', resume: '3 séances course-marche, renfo avant chaque séance.' },
     { nom: 'Construction', de: 7, a: 13, vol: '2h30 → 4h', resume: '3 à 4 séances, sortie longue jusqu\'à 2h30, marche rapide en côte.' },
     { nom: 'Spécifique', de: 14, a: 18, vol: '4h45 → 6h', resume: 'Mini-backyards, une sortie de nuit après le travail.' },
     { nom: 'Affûtage', de: 19, a: 21, vol: '4h → 3h', resume: 'Volume en baisse de 30 à 50 %, sommeil soigné la dernière semaine.' }
@@ -26,12 +26,12 @@ const PREPA = {
   semaines: {
     0: { vol: '2 séances', seances: [
       { id: 's0a', jour: '2026-11-11', quoi: 'Course très lente, 20 min', consigne: 'Allure où tu peux parler, marche autorisée.', faite: true, resultat: '24 min, 3,87 km à 6:13/km, essoufflé : <b>trop vite</b>.' },
-      { id: 's0b', jour: '2026-11-13', moment: 'midi', quoi: 'Sortie avec les collègues, 25 min max', consigne: '7 à 8 min/km, petits pas, course-marche 2 min / 1 min si besoin.' }
+      { id: 's0b', jour: '2026-11-13', moment: 'midi', quoi: 'Sortie avec les collègues, 25 min max', consigne: '7 à 8 min/km, petits pas, course-marche 2 min / 1 min si besoin.', faite: true, resultat: '31 min, 4,60 km à 6:42/km, 57 m D+, genou 2/10 en fin de course : mieux que mercredi, mais <b>6 min de trop</b> et la côte finale montée en courant.' }
     ] },
-    1: { vol: '1h15', seances: [
-      { id: 's1a', quoi: 'Séance 1 · 20 min', consigne: 'Course très lente, allure où tu peux parler. Marche autorisée.' },
-      { id: 's1b', quoi: 'Séance 2 · 25 min', consigne: 'Même consigne.' },
-      { id: 's1c', quoi: 'Séance 3 · 30 min', consigne: 'Même consigne.' }
+    1: { vol: '1h05', seances: [
+      { id: 's1a', quoi: 'Séance 1 · 20 min', consigne: 'Course très lente, allure où tu peux parler. Marche toutes les montées. Arrête-toi au chrono, même si tu te sens bien.' },
+      { id: 's1b', quoi: 'Séance 2 · 20 min', consigne: 'Même consigne.' },
+      { id: 's1c', quoi: 'Séance 3 · 25 min', consigne: 'Même consigne.' }
     ] }
   },
   alerte: 'Arrêt et consultation si le genou fait boiter, gonfle, ou fait encore mal le lendemain.',

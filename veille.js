@@ -11,7 +11,7 @@ const VEILLE = {
       id: 'alentours-tdf2027',
       qui: 'Alentours Événementiel',
       quoi: 'Intendance logistique, conduite de char, ligne d\'arrivée, fan park, navettes',
-      condition: 'Dispo du 30/06 au 25/07/2027, permis depuis 3 ans',
+      condition: 'Dispo du 30/06 au 25/07/2027 (option TDF Femmes 28/07-09/08), permis depuis 3 ans',
       lien: 'https://alentoursevenementiel.com/recrutement-roadshow/'
     }
   ]

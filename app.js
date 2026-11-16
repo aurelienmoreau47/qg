@@ -5,7 +5,7 @@
 // Le Sheet renvoie tout : c'est comme ça que le téléphone et le PC restent pareils.
 
 const URL_SCRIPT_EN_LIGNE = 'https://script.google.com/macros/s/AKfycbzVtXadj1IIZda8jBdQt4UlrqpFwWFppuB4TWmAGOj89XU1_zofTkBwOMnq7tU1ccYScQ/exec'; // adresse /exec du script Google (voir README)
-const VERSION_APPLI = 'qg-15'; // même valeur que CACHE dans sw.js
+const VERSION_APPLI = 'qg-16'; // même valeur que CACHE dans sw.js
 const LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 const URL_SCRIPT = LOCAL ? location.origin + '/exec' : URL_SCRIPT_EN_LIGNE;
 const COLLS = ['dossiers', 'notes', 'reglages', 'repas'];
@@ -588,6 +588,22 @@ function prepaBlock() {
     <a class="encart" href="#prepa"><span class="k">${esc(PREPA.course.nom)}</span><span class="t">${titre}</span>
       <span class="j">${j === 0 ? 'Jour J' : 'J-' + j}<small>10 avril</small></span>${barrePrepa(n)}${next}<span class="go">Voir la prépa ›</span></a></div>`;
 }
+// ---------- Veille recruteurs Tour 2027
+// Les offres viennent de veille.js (réécrit chaque lundi par la tâche planifiée de Claude).
+// « Vu » est gardé dans les réglages (id « vv-<id> »), donc vu sur le téléphone = vu sur le PC.
+const VEILLE_OK = typeof VEILLE !== 'undefined';
+const offreVue = o => { const r = DB.reglages['vv-' + o.id]; return !!(r && !r.suppr && r.v); };
+const offresNonVues = () => VEILLE_OK ? (VEILLE.nouveautes || []).filter(o => !offreVue(o)) : [];
+function veilleBlock() {
+  const os = offresNonVues();
+  if (!os.length) return '';
+  const n = os.length;
+  return `<section class="veille" aria-label="Veille recruteurs Tour 2027">
+    <div class="vh"><span class="vk">🔔 Tour 2027 · ${n} offre${n > 1 ? 's' : ''} ouverte${n > 1 ? 's' : ''}</span>
+      <button type="button" class="vu" data-veille-vu>Vu ✓</button></div>
+    ${os.map(o => `<div class="vo"><div class="vq">${esc(o.qui)}</div><div class="vp">${esc(o.quoi)}</div>${o.condition ? `<div class="vc">${esc(o.condition)}</div>` : ''}${o.limite ? `<div class="vc"><b>Avant le ${esc(jourCourt(o.limite))}</b></div>` : ''}<a class="vl" href="${esc(o.lien)}" target="_blank" rel="noopener">Postuler ›</a></div>`).join('')}
+    <div class="vn">Vérifié ${esc(jourCourt(VEILLE.verifie))} · prochaine vérif ${esc(jourCourt(VEILLE.prochaine))}</div></section>`;
+}
 function seanceHTML(x) {
   const today = x.jour === auj(), ok = seanceFaite(x);
   return `<div class="se${today ? ' today' : ''}">
@@ -839,7 +855,7 @@ function renderAccueil() {
   // Ordre voulu : Où je suis, Cours, Tâches urgentes, Repas, Agenda perso, Notes épinglées
   lieuxCtx();
   const cours = coursBlock(), prepa = prepaBlock();
-  $('#v-accueil').innerHTML = `<div class="home perso${cours ? ' has-cours' : ''}${prepa ? '' : ' sans-prepa'}">${locBlock()}${cours}${urgentBlock()}${repasBlock()}${prepa}${agendaBlock('perso', 'Agenda perso')}${pinsBlock('Notes épinglées')}</div>`;
+  $('#v-accueil').innerHTML = `${veilleBlock()}<div class="home perso${cours ? ' has-cours' : ''}${prepa ? '' : ' sans-prepa'}">${locBlock()}${cours}${urgentBlock()}${repasBlock()}${prepa}${agendaBlock('perso', 'Agenda perso')}${pinsBlock('Notes épinglées')}</div>`;
 }
 
 function renderNotes() {
@@ -1153,6 +1169,7 @@ document.addEventListener('click', e => {
   if (!$('#ov-move').hidden && t.closest('#ov-move')) { if (t === $('#ov-move') || t.closest('#mv-cancel')) fermerMove(); return; }
   const pf = t.closest('[data-pf]');
   if (pf) { const id = pf.dataset.pf, x = Object.values(PREPA.semaines).flatMap(s => s.seances).find(s => s.id === id); if (x) { const ok = !seanceFaite(x); enregistrer('reglages', { id: 'pf-' + id, v: ok }); renderPrepa(); toast(ok ? `Séance faite : ${x.quoi}` : `Séance décochée : ${x.quoi}`); } return; }
+  if (t.closest('[data-veille-vu]')) { const os = offresNonVues(); os.forEach(o => enregistrer('reglages', { id: 'vv-' + o.id, v: true })); renderAccueil(); toast(os.length > 1 ? 'Offres marquées comme vues' : 'Offre marquée comme vue'); return; }
   const pw = t.closest('[data-pwk]'); if (pw) { const i = +pw.dataset.pwk; S.pwk = S.pwk || {}; S.pwk[i] = pw.getAttribute('aria-expanded') !== 'true'; renderPrepa(); return; }
   const mmv = t.closest('[data-meal-move]'); if (mmv) { openMove(mmv.dataset.mealMove); return; }
   const ma = t.closest('[data-meal-add]'); if (ma) { openRepas(ma.dataset.mealAdd); return; }

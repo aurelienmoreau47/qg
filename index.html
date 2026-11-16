@@ -135,6 +135,17 @@ main{max-width:1240px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-le
   .home.raf{grid-template-columns:minmax(0,400px) minmax(0,1fr);grid-template-areas:"match pins" "urgent pins" "agenda pins" "last pins";align-items:start}
   .a-urgent{grid-area:urgent}.a-pins{grid-area:pins}.a-last{grid-area:last}.a-agenda{grid-area:agenda}.a-cours{grid-area:cours}.a-match{grid-area:match}.a-loc{grid-area:loc}.a-repas{grid-area:repas}
 }
+/* Veille recruteurs Tour 2027 : encart en haut de l'accueil perso, seulement s'il y a des offres non vues (veille.js) */
+.veille{margin-bottom:20px;background:var(--surface);border:2px solid var(--raf);border-radius:var(--r);padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.veille .vh{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.veille .vk{font-weight:700;font-size:15px;color:var(--raf)}
+.veille .vu{border:0;background:var(--raf);color:var(--raf-ink);font:inherit;font-weight:700;font-size:13px;border-radius:999px;padding:6px 14px;cursor:pointer;flex:none}
+.veille .vo{display:grid;gap:2px;padding-top:8px;border-top:1px solid color-mix(in srgb,var(--raf) 25%,transparent)}
+.veille .vq{font-family:var(--f-display);font-size:18px;font-weight:650}
+.veille .vp{font-size:14px;line-height:1.35}
+.veille .vc{font-size:13px;color:var(--muted)}
+.veille .vl{justify-self:start;margin-top:4px;font-weight:700;font-size:14px;color:var(--raf);text-decoration:none}
+.veille .vn{font-size:12px;color:var(--muted)}
 /* Prépa backyard : encart de l'accueil perso et page #prepa (plan dans prepa.js) */
 .encart{border:0;text-align:left;width:100%;background:var(--by);color:var(--by-ink);border-radius:var(--r);padding:14px 16px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 14px;align-items:start;text-decoration:none}
 .encart .k{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.8}
@@ -804,6 +815,7 @@ button.ev:hover .t,button.ev.all:hover{text-decoration:underline}
 
 <div class="toast" id="toast" role="status" hidden></div>
 <script src="prepa.js"></script>
+<script src="veille.js"></script>
 <script src="guide.js"></script>
 <script src="app.js"></script>
 </body>

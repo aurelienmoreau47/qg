@@ -29,9 +29,9 @@ const PREPA = {
       { id: 's0b', jour: '2026-11-13', moment: 'midi', quoi: 'Sortie avec les collègues, 25 min max', consigne: '7 à 8 min/km, petits pas, course-marche 2 min / 1 min si besoin.', faite: true, resultat: '31 min, 4,60 km à 6:42/km, 57 m D+, genou 2/10 en fin de course : mieux que mercredi, mais <b>6 min de trop</b> et la côte finale montée en courant.' }
     ] },
     1: { vol: '1h05', seances: [
-      { id: 's1a', quoi: 'Séance 1 · 20 min', consigne: 'Course très lente, allure où tu peux parler. Marche toutes les montées. Arrête-toi au chrono, même si tu te sens bien. Bois 1 à 2 grands verres d\'eau (300 à 600 ml) dans les 2 à 4 h avant.' },
-      { id: 's1b', quoi: 'Séance 2 · 20 min', consigne: 'Même consigne.' },
-      { id: 's1c', quoi: 'Séance 3 · 25 min', consigne: 'Même consigne.' }
+      { id: 's1a', jour: '2026-11-16', moment: 'soir', quoi: 'Séance 1 · 20 min, seul', consigne: 'Course très lente, allure où tu peux parler. Marche toutes les montées. Arrête-toi au chrono, même si tu te sens bien. Bois 1 à 2 grands verres d\'eau (300 à 600 ml) dans les 2 à 4 h avant.' },
+      { id: 's1b', jour: '2026-11-18', moment: 'midi', quoi: 'Séance 2 · 20 min avec les collègues', consigne: 'Préviens-les avant : « 20 min en course-marche, ne m\'attendez pas ». Aller-retour : demi-tour à 10 min au chrono, même s\'ils continuent. Course-marche 2 min / 1 min dès le départ (c\'est au début qu\'on s\'emballe en groupe). Phrases complètes possibles, sinon tu marches. Toutes les montées en marchant, côte de fin comprise. Renfo complet si tu as le temps, sinon au moins les 5 min d\'échauffement.' },
+      { id: 's1c', quoi: 'Séance 3 · 25 min, samedi ou dimanche', consigne: 'Même consigne que la séance 1.' }
     ] }
   },
   alerte: 'Arrêt et consultation si le genou fait boiter, gonfle, ou fait encore mal le lendemain.',

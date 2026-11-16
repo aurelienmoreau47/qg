@@ -20,8 +20,8 @@ const PREPA = {
     { nom: 'Spécifique', de: 14, a: 18, vol: '4h45 → 6h', resume: 'Mini-backyards, une sortie de nuit après le travail.' },
     { nom: 'Affûtage', de: 19, a: 21, vol: '4h → 3h', resume: 'Volume en baisse de 30 à 50 %, sommeil soigné la dernière semaine.' }
   ],
-  // Repères des semaines : lt = allégée, mb = mini-backyard, af = affûtage
-  reperes: { 4: ['lt', 'Allégée'], 8: ['lt', 'Allégée'], 11: ['mb', 'Mini-backyard 3'], 12: ['lt', 'Allégée'], 14: ['mb', 'Mini-backyard 5'], 16: ['lt', 'Allégée'], 17: ['mb', 'Mini-backyard 6, de nuit'], 19: ['af', 'Affûtage'], 20: ['af', 'Affûtage'], 21: ['af', 'Course'] },
+  // Repères des semaines : lt = allégée, mb = mini-backyard, af = affûtage, nu = rendez-vous nutrition (ajouté le 16/11)
+  reperes: { 4: ['lt', 'Allégée'], 6: ['nu', 'Point nutrition'], 8: ['lt', 'Allégée'], 11: ['mb', 'Mini-backyard 3'], 12: ['lt', 'Allégée'], 14: ['mb', 'Mini-backyard 5'], 16: ['lt', 'Allégée'], 17: ['mb', 'Mini-backyard 6, de nuit'], 19: ['af', 'Affûtage'], 20: ['af', 'Affûtage'], 21: ['af', 'Course'] },
   // Semaines détaillées (remplies au fur et à mesure). Séance : id unique, jour et moment facultatifs, resultat écrit par Claude.
   semaines: {
     0: { vol: '2 séances', seances: [
